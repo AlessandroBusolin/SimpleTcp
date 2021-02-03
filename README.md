@@ -10,13 +10,10 @@ SimpleTcp provides simple methods for creating your own TCP-based sockets applic
 
 - If you need integrated framing, please use WatsonTcp (https://github.com/jchristn/WatsonTcp)
 - If you need discrete control over the number of bytes read from or written to a socket, please use CavemanTcp (https://github.com/jchristn/CavemanTcp)
- 
-## New in v2.1.0
 
-- Breaking changes
-- Retarget to include .NET Core (includes previous targeting to .NET Standard and .NET Framework)
-- Consolidated settings and event classes
-- Added support for TCP keepalives
+## New in v2.2.1
+
+- Breaking change; TCP keepalives now disabled by default due to incompatibility and problems on some platforms
 
 ## Help or Feedback
 
@@ -30,35 +27,35 @@ using SimpleTcp;
 
 void Main(string[] args)
 {
-	// instantiate
-	SimpleTcpServer server = new SimpleTcpServer("127.0.0.1", 9000, false, null, null);
+  // instantiate
+  SimpleTcpServer server = new SimpleTcpServer("127.0.0.1:9000");
 
-	// set events
-	server.Events.ClientConnected += ClientConnected;
-	server.Events.ClientDisconnected += ClientDisconnected;
-	server.Events.DataReceived += DataReceived;
+  // set events
+  server.Events.ClientConnected += ClientConnected;
+  server.Events.ClientDisconnected += ClientDisconnected;
+  server.Events.DataReceived += DataReceived;
 
-	// let's go!
-	server.Start();
+  // let's go!
+  server.Start();
 
-	// once a client has connected...
-	server.Send("[ClientIp:Port]", "Hello, world!");
-	Console.ReadKey();
+  // once a client has connected...
+  server.Send("[ClientIp:Port]", "Hello, world!");
+  Console.ReadKey();
 }
 
 static void ClientConnected(object sender, ClientConnectedEventArgs e)
 {
-    Console.WriteLine("[" + e.IpPort + "] client connected");
+  Console.WriteLine("[" + e.IpPort + "] client connected");
 }
 
 static void ClientDisconnected(object sender, ClientDisconnectedEventArgs e)
 {
-    Console.WriteLine("[" + e.IpPort + "] client disconnected: " + e.Reason.ToString());
+  Console.WriteLine("[" + e.IpPort + "] client disconnected: " + e.Reason.ToString());
 }
 
-static void DataReceived(object sender, DataReceivedFromClientEventArgs e)
+static void DataReceived(object sender, DataReceivedEventArgs e)
 {
-    Console.WriteLine("[" + e.IpPort + "]: " + Encoding.UTF8.GetString(e.Data));
+  Console.WriteLine("[" + e.IpPort + "]: " + Encoding.UTF8.GetString(e.Data));
 }
 ```
 
@@ -68,35 +65,35 @@ using SimpleTcp;
 
 void Main(string[] args)
 {
-	// instantiate
-	SimpleTcpClient client = new SimpleTcpClient("127.0.0.1", 9000, false, null, null);
+  // instantiate
+  SimpleTcpClient client = new SimpleTcpClient("127.0.0.1:9000");
 
-	// set events
-	client.Events.Connected += Connected;
-	client.Events.Disconnected += Disconnected;
-	client.Events.DataReceived += DataReceived;
+  // set events
+  client.Events.Connected += Connected;
+  client.Events.Disconnected += Disconnected;
+  client.Events.DataReceived += DataReceived;
 
-	// let's go!
-	client.Connect();
+  // let's go!
+  client.Connect();
 
-	// once connected to the server...
-	client.Send("Hello, world!");
-	Console.ReadKey();
+  // once connected to the server...
+  client.Send("Hello, world!");
+  Console.ReadKey();
 }
 
 static void Connected(object sender, EventArgs e)
 {
-    Console.WriteLine("*** Server connected");
+  Console.WriteLine("*** Server connected");
 }
 
 static void Disconnected(object sender, EventArgs e)
 {
-    Console.WriteLine("*** Server disconnected"); 
+  Console.WriteLine("*** Server disconnected"); 
 }
 
-static void DataReceived(object sender, DataReceivedFromServerEventArgs e)
+static void DataReceived(object sender, DataReceivedEventArgs e)
 {
-    Console.WriteLine("[" + _ServerIp + ":" + _ServerPort + "] " + Encoding.UTF8.GetString(e.Data));
+  Console.WriteLine("[" + e.IpPort + "] " + Encoding.UTF8.GetString(e.Data));
 }
 ```
 
@@ -107,6 +104,7 @@ Both SimpleTcpClient and SimpleTcpServer have settable values for:
 - ```Logger``` - method to invoke to send log messages from either SimpleTcpClient or SimpleTcpServer
 - ```Settings.MutuallyAuthenticate``` - only used if SSL is enabled, demands that both client and server mutually authenticate
 - ```Settings.AcceptInvalidCertificates``` - accept and allow certificates that are invalid or cannot be validated
+- ```Keepalive``` - to enable/disable keepalives and set specific parameters
 
 SimpleTcpServer also has:
 
@@ -154,7 +152,7 @@ server.Keepalive.TcpKeepAliveRetryCount = 5;    // number of failed keepalive pr
 Some important notes about TCP keepalives:
 
 - Keepalives only work in .NET Core and .NET Framework
-- Keepalives can be enabled on either client or server, but generally only work on server (being investigated)
+- Keepalives can be enabled on either client or server, but are implemented and enforced in the underlying operating system, and may not work as expected
 - ```Keepalive.TcpKeepAliveRetryCount``` is only applicable to .NET Core; for .NET Framework, this value is forced to 10
 
 ## Running under Mono

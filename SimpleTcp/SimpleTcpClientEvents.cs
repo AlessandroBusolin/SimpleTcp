@@ -14,17 +14,17 @@ namespace SimpleTcp
         /// <summary>
         /// Event to call when the connection is established.
         /// </summary>
-        public event EventHandler Connected;
+        public event EventHandler<ClientConnectedEventArgs> Connected;
 
         /// <summary>
         /// Event to call when the connection is destroyed.
         /// </summary>
-        public event EventHandler Disconnected;
+        public event EventHandler<ClientDisconnectedEventArgs> Disconnected;
 
         /// <summary>
         /// Event to call when byte data has become available from the server.
         /// </summary>
-        public event EventHandler<DataReceivedFromServerEventArgs> DataReceived;
+        public event EventHandler<DataReceivedEventArgs> DataReceived;
 
         #endregion
 
@@ -46,17 +46,17 @@ namespace SimpleTcp
 
         #region Public-Methods
 
-        internal void HandleConnected(object sender)
+        internal void HandleConnected(object sender, ClientConnectedEventArgs args)
         {
-            Connected?.Invoke(sender, EventArgs.Empty);
+            Connected?.Invoke(sender, args);
         }
 
-        internal void HandleDisconnected(object sender)
+        internal void HandleClientDisconnected(object sender, ClientDisconnectedEventArgs args)
         {
-            Disconnected?.Invoke(sender, EventArgs.Empty);
+            Disconnected?.Invoke(sender, args);
         }
 
-        internal void HandleDataReceived(object sender, DataReceivedFromServerEventArgs args)
+        internal void HandleDataReceived(object sender, DataReceivedEventArgs args)
         {
             DataReceived?.Invoke(sender, args);
         }

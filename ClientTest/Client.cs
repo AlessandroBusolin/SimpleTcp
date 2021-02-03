@@ -20,6 +20,8 @@ namespace ClientTest
         {
             _ServerIp =    InputString("Server IP   :", "127.0.0.1", false);
             _ServerPort = InputInteger("Server Port :", 9000, true, false);
+
+            /*
             _Ssl =        InputBoolean("Use SSL     :", false);
 
             if (_Ssl)
@@ -29,11 +31,15 @@ namespace ClientTest
             }
 
             _Client = new SimpleTcpClient(_ServerIp, _ServerPort, _Ssl, _PfxFilename, _PfxPassword);
+            */
 
+            // _Client = new SimpleTcpClient((_ServerIp + ":" + _ServerPort));
+
+            _Client = new SimpleTcpClient(_ServerIp, _ServerPort);
             _Client.Events.Connected += Connected;
             _Client.Events.Disconnected += Disconnected;
             _Client.Events.DataReceived += DataReceived;
-             
+            _Client.Keepalive.EnableTcpKeepAlives = true; 
             _Client.Settings.MutuallyAuthenticate = false;
             _Client.Settings.AcceptInvalidCertificates = true;
             _Client.Logger = Logger;
@@ -71,6 +77,12 @@ namespace ClientTest
                     case "stats":
                         Console.WriteLine(_Client.Statistics.ToString());
                         break;
+                    case "connect":
+                        _Client.Connect();
+                        break;
+                    case "disconnect":
+                        _Client.Disconnect();
+                        break;
                     case "stats reset":
                         _Client.Statistics.Reset();
                         break;
@@ -93,9 +105,9 @@ namespace ClientTest
             Console.WriteLine("*** Server disconnected"); 
         }
 
-        static void DataReceived(object sender, DataReceivedFromServerEventArgs e)
+        static void DataReceived(object sender, DataReceivedEventArgs e)
         {
-            Console.WriteLine("[" + _ServerIp + ":" + _ServerPort + "] " + Encoding.UTF8.GetString(e.Data));
+            Console.WriteLine("[" + e.IpPort + "] " + Encoding.UTF8.GetString(e.Data));
         }
 
         static void Menu()
@@ -107,7 +119,9 @@ namespace ClientTest
             Console.WriteLine(" send          Send a message to the server");
             Console.WriteLine(" sendasync     Send a message to the server asynchronously");
             Console.WriteLine(" connected     Display if the client is connected to the server");
-            Console.WriteLine(" dispose       Dispose of the client"); 
+            Console.WriteLine(" dispose       Dispose of the client");
+            Console.WriteLine(" connect       Connect to the server (connected: " + _Client.IsConnected + ")");
+            Console.WriteLine(" disconnect    Disconnect from the server");
             Console.WriteLine(" stats         Display client statistics");
             Console.WriteLine(" stats reset   Reset client statistics");
             Console.WriteLine("");

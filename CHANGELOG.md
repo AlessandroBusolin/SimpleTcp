@@ -2,14 +2,28 @@
 
 ## Current Version
 
+v2.2.1
+
+- Breaking change; TCP keepalives now disabled by default due to incompatibility and problems on some platforms
+
+## Previous Versions
+
+v2.2.0
+ 
+- Breaking changes
+- Consolidated event argument objects to provide clients with context on which server is connected/disconnected or sent data
+  - ```DataReceivedFromClientEventArgs``` and ```DataReceivedFromServerEventArgs``` consolidated into ```DataReceivedEventArgs```
+  - ```SimpleTcpClient.Connected``` and ```SimpleTcpClient.Disconnected``` now use ```ClientConnectedEventArgs``` and ```ClientDisconnectEventArgs```
+  - Motivation for the change was to support applications that use multiple instances of SimpleTcpClient with each instance using the same event handlers
+
 v2.1.0
 
 - Breaking changes
 - Retarget to include .NET Core (includes previous targeting to .NET Standard and .NET Framework)
 - Consolidated settings and event classes
 - Added support for TCP keepalives
-
-## Previous Versions
+- Client ```.Disconnect()``` API
+- Additional constructors
 
 v2.0.6
 

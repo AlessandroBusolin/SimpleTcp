@@ -29,11 +29,11 @@ namespace SimpleTcp
         {
             get
             {
-                return _Connected;
+                return _IsConnected;
             }
             private set
             {
-                _Connected = value;
+                _IsConnected = value;
             }
         }
 
@@ -101,6 +101,17 @@ namespace SimpleTcp
         /// </summary>
         public Action<string> Logger = null;
 
+        /// <summary>
+        /// The IP:port of the server to which this client is mapped.
+        /// </summary>
+        public string ServerIpPort
+        {
+            get
+            {
+                return _ServerIp + ":" + _ServerPort;
+            }
+        }
+
         #endregion
 
         #region Private-Members
@@ -111,28 +122,67 @@ namespace SimpleTcp
         private SimpleTcpKeepaliveSettings _Keepalive = new SimpleTcpKeepaliveSettings();
         private SimpleTcpStatistics _Statistics = new SimpleTcpStatistics();
 
-        private string _ServerIp;
-        private IPAddress _IPAddress;
-        private int _Port;
-        private System.Net.Sockets.TcpClient _Client;
-        private NetworkStream _NetworkStream;
+        private string _ServerIp = null;
+        private int _ServerPort = 0;
+        private IPAddress _IPAddress = null;
+        private System.Net.Sockets.TcpClient _Client = null;
+        private NetworkStream _NetworkStream = null;
 
-        private bool _Ssl;
-        private string _PfxCertFilename;
-        private string _PfxPassword;
-        private SslStream _SslStream;
-        private X509Certificate2 _SslCert;
-        private X509Certificate2Collection _SslCertCollection;
+        private bool _Ssl = false;
+        private string _PfxCertFilename = null;
+        private string _PfxPassword = null;
+        private SslStream _SslStream = null;
+        private X509Certificate2 _SslCert = null;
+        private X509Certificate2Collection _SslCertCollection = null;
 
         private SemaphoreSlim _SendLock = new SemaphoreSlim(1, 1); 
-        private bool _Connected = false;
+        private bool _IsConnected = false;
 
         private CancellationTokenSource _TokenSource = new CancellationTokenSource();
         private CancellationToken _Token;
-         
+
         #endregion
 
         #region Constructors-and-Factories
+
+        /// <summary>
+        /// Instantiates the TCP client without SSL.  Set the Connected, Disconnected, and DataReceived callbacks.  Once set, use Connect() to connect to the server.
+        /// </summary>
+        /// <param name="ipPort">The IP:port of the server.</param> 
+        public SimpleTcpClient(string ipPort)
+        {
+            if (String.IsNullOrEmpty(ipPort)) throw new ArgumentNullException(nameof(ipPort));
+
+            Common.ParseIpPort(ipPort, out _ServerIp, out _ServerPort);
+            if (_ServerPort < 0) throw new ArgumentException("Port must be zero or greater.");
+            if (String.IsNullOrEmpty(_ServerIp)) throw new ArgumentNullException("Server IP or hostname must not be null.");
+
+            if (!IPAddress.TryParse(_ServerIp, out _IPAddress))
+            {
+                _IPAddress = Dns.GetHostEntry(_ServerIp).AddressList[0];
+                _ServerIp = _IPAddress.ToString();
+            }
+        }
+
+        /// <summary>
+        /// Instantiates the TCP client without SSL.  Set the Connected, Disconnected, and DataReceived callbacks.  Once set, use Connect() to connect to the server.
+        /// </summary>
+        /// <param name="serverIpOrHostname">The server IP address or hostname.</param>
+        /// <param name="port">The TCP port on which to connect.</param>
+        public SimpleTcpClient(string serverIpOrHostname, int port)
+        {
+            if (String.IsNullOrEmpty(serverIpOrHostname)) throw new ArgumentNullException(nameof(serverIpOrHostname));
+            if (port < 0) throw new ArgumentException("Port must be zero or greater.");
+
+            _ServerIp = serverIpOrHostname;
+            _ServerPort = port;
+
+            if (!IPAddress.TryParse(_ServerIp, out _IPAddress))
+            {
+                _IPAddress = Dns.GetHostEntry(serverIpOrHostname).AddressList[0];
+                _ServerIp = _IPAddress.ToString();
+            } 
+        }
 
         /// <summary>
         /// Instantiates the TCP client.  Set the Connected, Disconnected, and DataReceived callbacks.  Once set, use Connect() to connect to the server.
@@ -145,18 +195,19 @@ namespace SimpleTcp
         {
             if (String.IsNullOrEmpty(ipPort)) throw new ArgumentNullException(nameof(ipPort));
 
-            Common.ParseIpPort(ipPort, out _ServerIp, out _Port);
-            if (_Port < 0) throw new ArgumentException("Port must be zero or greater.");
+            Common.ParseIpPort(ipPort, out _ServerIp, out _ServerPort);
+            if (_ServerPort < 0) throw new ArgumentException("Port must be zero or greater.");
             if (String.IsNullOrEmpty(_ServerIp)) throw new ArgumentNullException("Server IP or hostname must not be null.");
-
-            _Token = _TokenSource.Token; 
-
+             
             if (!IPAddress.TryParse(_ServerIp, out _IPAddress))
             {
                 _IPAddress = Dns.GetHostEntry(_ServerIp).AddressList[0];
+                _ServerIp = _IPAddress.ToString();
             }
 
-            InitializeClient(ssl, pfxCertFilename, pfxPassword);
+            _Ssl = ssl;
+            _PfxCertFilename = pfxCertFilename;
+            _PfxPassword = pfxPassword;
         }
 
         /// <summary>
@@ -172,16 +223,18 @@ namespace SimpleTcp
             if (String.IsNullOrEmpty(serverIpOrHostname)) throw new ArgumentNullException(nameof(serverIpOrHostname));
             if (port < 0) throw new ArgumentException("Port must be zero or greater.");
 
-            _Token = _TokenSource.Token;
             _ServerIp = serverIpOrHostname;
-            _Port = port;
+            _ServerPort = port;
 
             if (!IPAddress.TryParse(_ServerIp, out _IPAddress))
             {
                 _IPAddress = Dns.GetHostEntry(serverIpOrHostname).AddressList[0];
+                _ServerIp = _IPAddress.ToString();
             }
 
-            InitializeClient(ssl, pfxCertFilename, pfxPassword); 
+            _Ssl = ssl;
+            _PfxCertFilename = pfxCertFilename;
+            _PfxPassword = pfxPassword;
         }
 
         #endregion
@@ -202,11 +255,24 @@ namespace SimpleTcp
         /// </summary>
         public void Connect()
         {
-            Logger?.Invoke(_Header + "connecting to " + _ServerIp + ":" + _Port);
+            if (IsConnected)
+            {
+                Logger?.Invoke(_Header + "already connected");
+                return;
+            }
+            else
+            {
+                Logger?.Invoke(_Header + "initializing client");
 
-            if (_Keepalive.EnableTcpKeepAlives) EnableKeepalives();
+                InitializeClient(_Ssl, _PfxCertFilename, _PfxPassword);
 
-            IAsyncResult ar = _Client.BeginConnect(_ServerIp, _Port, null, null);
+                Logger?.Invoke(_Header + "connecting to " + ServerIpPort);
+            }
+
+            _TokenSource = new CancellationTokenSource();
+            _Token = _TokenSource.Token;
+
+            IAsyncResult ar = _Client.BeginConnect(_ServerIp, _ServerPort, null, null);
             WaitHandle wh = ar.AsyncWaitHandle;
 
             try
@@ -214,7 +280,7 @@ namespace SimpleTcp
                 if (!ar.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(_Settings.ConnectTimeoutSeconds), false))
                 {
                     _Client.Close();
-                    throw new TimeoutException("Timeout connecting to " + _ServerIp + ":" + _Port);
+                    throw new TimeoutException("Timeout connecting to " + ServerIpPort);
                 }
 
                 _Client.EndConnect(ar); 
@@ -251,7 +317,8 @@ namespace SimpleTcp
                     }
                 } 
 
-                _Connected = true;
+                _IsConnected = true;
+                if (_Keepalive.EnableTcpKeepAlives) EnableKeepalives();
             }
             catch (Exception)
             {
@@ -262,9 +329,29 @@ namespace SimpleTcp
                 wh.Close();
             }
 
-            _Events.HandleConnected(this);
+            _Events.HandleConnected(this, new ClientConnectedEventArgs(ServerIpPort));
 
             Task.Run(() => DataReceiver(_Token), _Token);
+        }
+
+        /// <summary>
+        /// Disconnect from the server.
+        /// </summary>
+        public void Disconnect()
+        {
+            if (!IsConnected)
+            {
+                Logger?.Invoke(_Header + "already disconnected");
+                return;
+            }
+            else
+            {
+                Logger?.Invoke(_Header + "disconnecting from " + ServerIpPort);
+            }
+
+            _TokenSource.Cancel();
+            _Client.Close();
+            _IsConnected = false;
         }
 
         /// <summary>
@@ -274,7 +361,7 @@ namespace SimpleTcp
         public void Send(string data)
         {
             if (String.IsNullOrEmpty(data)) throw new ArgumentNullException(nameof(data));
-            if (!_Connected) throw new IOException("Not connected to the server; use Connect() first.");
+            if (!_IsConnected) throw new IOException("Not connected to the server; use Connect() first.");
             byte[] bytes = Encoding.UTF8.GetBytes(data);
             MemoryStream ms = new MemoryStream();
             ms.Write(bytes, 0, bytes.Length);
@@ -289,7 +376,7 @@ namespace SimpleTcp
         public void Send(byte[] data)
         {
             if (data == null || data.Length < 1) throw new ArgumentNullException(nameof(data));
-            if (!_Connected) throw new IOException("Not connected to the server; use Connect() first.");
+            if (!_IsConnected) throw new IOException("Not connected to the server; use Connect() first.");
             MemoryStream ms = new MemoryStream();
             ms.Write(data, 0, data.Length);
             ms.Seek(0, SeekOrigin.Begin);
@@ -306,7 +393,7 @@ namespace SimpleTcp
             if (contentLength < 1) return;
             if (stream == null) throw new ArgumentNullException(nameof(stream));
             if (!stream.CanRead) throw new InvalidOperationException("Cannot read from supplied stream.");
-            if (!_Connected) throw new IOException("Not connected to the server; use Connect() first.");
+            if (!_IsConnected) throw new IOException("Not connected to the server; use Connect() first.");
             SendInternal(contentLength, stream);
         }
 
@@ -314,29 +401,33 @@ namespace SimpleTcp
         /// Send data to the server asynchronously.
         /// </summary>
         /// <param name="data">String containing data to send.</param>
-        public async Task SendAsync(string data)
+        /// <param name="token">Cancellation token for canceling the request.</param>
+        public async Task SendAsync(string data, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(data)) throw new ArgumentNullException(nameof(data));
-            if (!_Connected) throw new IOException("Not connected to the server; use Connect() first.");
+            if (!_IsConnected) throw new IOException("Not connected to the server; use Connect() first.");
+            if (token == default(CancellationToken)) token = _Token;
             byte[] bytes = Encoding.UTF8.GetBytes(data);
             MemoryStream ms = new MemoryStream();
-            await ms.WriteAsync(bytes, 0, bytes.Length);
+            await ms.WriteAsync(bytes, 0, bytes.Length, token).ConfigureAwait(false);
             ms.Seek(0, SeekOrigin.Begin);
-            await SendInternalAsync(bytes.Length, ms);
+            await SendInternalAsync(bytes.Length, ms, token).ConfigureAwait(false);
         }
 
         /// <summary>
         /// Send data to the server asynchronously.
         /// </summary> 
         /// <param name="data">Byte array containing data to send.</param>
-        public async Task SendAsync(byte[] data)
+        /// <param name="token">Cancellation token for canceling the request.</param>
+        public async Task SendAsync(byte[] data, CancellationToken token = default)
         {
             if (data == null || data.Length < 1) throw new ArgumentNullException(nameof(data));
-            if (!_Connected) throw new IOException("Not connected to the server; use Connect() first.");
+            if (!_IsConnected) throw new IOException("Not connected to the server; use Connect() first.");
+            if (token == default(CancellationToken)) token = _Token;
             MemoryStream ms = new MemoryStream();
-            await ms.WriteAsync(data, 0, data.Length);
+            await ms.WriteAsync(data, 0, data.Length, token).ConfigureAwait(false);
             ms.Seek(0, SeekOrigin.Begin);
-            await SendInternalAsync(data.Length, ms);
+            await SendInternalAsync(data.Length, ms, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -344,13 +435,15 @@ namespace SimpleTcp
         /// </summary>
         /// <param name="contentLength">The number of bytes to read from the source stream to send.</param>
         /// <param name="stream">Stream containing the data to send.</param>
-        public async Task SendAsync(long contentLength, Stream stream)
+        /// <param name="token">Cancellation token for canceling the request.</param>
+        public async Task SendAsync(long contentLength, Stream stream, CancellationToken token = default)
         { 
             if (contentLength < 1) return;
             if (stream == null) throw new ArgumentNullException(nameof(stream));
             if (!stream.CanRead) throw new InvalidOperationException("Cannot read from supplied stream.");
-            if (!_Connected) throw new IOException("Not connected to the server; use Connect() first.");
-            await SendInternalAsync(contentLength, stream);
+            if (!_IsConnected) throw new IOException("Not connected to the server; use Connect() first.");
+            if (token == default(CancellationToken)) token = _Token;
+            await SendInternalAsync(contentLength, stream, token).ConfigureAwait(false);
         }
 
         #endregion
@@ -365,34 +458,33 @@ namespace SimpleTcp
         {
             if (disposing)
             {
-                _Connected = false;
+                _IsConnected = false;
 
                 if (_TokenSource != null)
                 {
-                    if (!_TokenSource.IsCancellationRequested) _TokenSource.Cancel();
-                    _TokenSource.Dispose();
-                    _TokenSource = null;
+                    if (!_TokenSource.IsCancellationRequested)
+                    {
+                        _TokenSource.Cancel();
+                        _TokenSource.Dispose();
+                    }
                 }
 
                 if (_SslStream != null)
                 {
                     _SslStream.Close();
-                    _SslStream.Dispose();
-                    _SslStream = null;
+                    _SslStream.Dispose(); 
                 }
 
                 if (_NetworkStream != null)
                 {
                     _NetworkStream.Close();
-                    _NetworkStream.Dispose();
-                    _NetworkStream = null;
+                    _NetworkStream.Dispose(); 
                 }
 
                 if (_Client != null)
                 {
                     _Client.Close();
-                    _Client.Dispose();
-                    _Client = null;
+                    _Client.Dispose(); 
                 }
 
                 Logger?.Invoke(_Header + "dispose complete");
@@ -433,7 +525,7 @@ namespace SimpleTcp
         }
 
         private async Task DataReceiver(CancellationToken token)
-        {
+        { 
             try
             { 
                 while (true)
@@ -446,24 +538,32 @@ namespace SimpleTcp
                         break;
                     }
                      
-                    byte[] data = await DataReadAsync(token);
+                    byte[] data = await DataReadAsync(token).ConfigureAwait(false);
                     if (data == null)
                     { 
-                        await Task.Delay(30);
+                        await Task.Delay(10).ConfigureAwait(false);
                         continue;
                     }
 
-                    _Events.HandleDataReceived(this, new DataReceivedFromServerEventArgs(data));
+                    _Events.HandleDataReceived(this, new DataReceivedEventArgs(ServerIpPort, data));
                     _Statistics.ReceivedBytes += data.Length;
                 } 
             }
-            catch (ObjectDisposedException)
+            catch (IOException)
             {
-
+                Logger?.Invoke(_Header + "data receiver canceled, peer disconnected");
             }
             catch (SocketException)
             {
-                Logger?.Invoke(_Header + "data receiver socket exception (disconnection)");
+                Logger?.Invoke(_Header + "data receiver canceled, peer disconnected");
+            }
+            catch (TaskCanceledException)
+            {
+                Logger?.Invoke(_Header + "data receiver task canceled");
+            }
+            catch (ObjectDisposedException)
+            {
+                Logger?.Invoke(_Header + "data receiver canceled due to disposal");
             }
             catch (Exception e)
             {
@@ -473,44 +573,30 @@ namespace SimpleTcp
                     Environment.NewLine);
             }
 
-            _Connected = false;
-            _Events.HandleDisconnected(this);
+            _IsConnected = false;
+            _Events.HandleClientDisconnected(this, new ClientDisconnectedEventArgs(ServerIpPort, DisconnectReason.Normal));
         }
 
         private async Task<byte[]> DataReadAsync(CancellationToken token)
-        { 
-            if (_Client == null 
-                || !_Client.Connected
-                || token.IsCancellationRequested) 
-                throw new OperationCanceledException();
-
-            if (!_NetworkStream.CanRead)
-                throw new IOException();
-
-            if (_Ssl && !_SslStream.CanRead)
-                throw new IOException();
-             
+        {  
             byte[] buffer = new byte[_Settings.StreamBufferSize];
             int read = 0;
 
             if (!_Ssl)
             { 
                 using (MemoryStream ms = new MemoryStream())
-                {
-                    while (true)
-                    {
-                        read = await _NetworkStream.ReadAsync(buffer, 0, buffer.Length);
+                { 
+                    read = await _NetworkStream.ReadAsync(buffer, 0, buffer.Length, token).ConfigureAwait(false);
 
-                        if (read > 0)
-                        {
-                            ms.Write(buffer, 0, read);
-                            return ms.ToArray();
-                        }
-                        else
-                        {
-                            throw new SocketException();
-                        }
+                    if (read > 0)
+                    {
+                        await ms.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
+                        return ms.ToArray();
                     }
+                    else
+                    {
+                        throw new SocketException();
+                    } 
                 } 
             }
             else
@@ -519,11 +605,11 @@ namespace SimpleTcp
                 {
                     while (true)
                     {
-                        read = await _SslStream.ReadAsync(buffer, 0, buffer.Length);
+                        read = await _SslStream.ReadAsync(buffer, 0, buffer.Length, token).ConfigureAwait(false);
 
                         if (read > 0)
                         {
-                            ms.Write(buffer, 0, read);
+                            await ms.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
                             return ms.ToArray();
                         }
                         else
@@ -567,31 +653,39 @@ namespace SimpleTcp
             }
         }
 
-        private async Task SendInternalAsync(long contentLength, Stream stream)
+        private async Task SendInternalAsync(long contentLength, Stream stream, CancellationToken token)
         {
-            long bytesRemaining = contentLength;
-            int bytesRead = 0;
-            byte[] buffer = new byte[_Settings.StreamBufferSize];
-
             try
             {
-                await _SendLock.WaitAsync();
+                long bytesRemaining = contentLength;
+                int bytesRead = 0;
+                byte[] buffer = new byte[_Settings.StreamBufferSize];
+
+                await _SendLock.WaitAsync(token).ConfigureAwait(false);
 
                 while (bytesRemaining > 0)
                 {
-                    bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                    bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, token).ConfigureAwait(false);
                     if (bytesRead > 0)
                     {
-                        if (!_Ssl) await _NetworkStream.WriteAsync(buffer, 0, bytesRead);
-                        else await _SslStream.WriteAsync(buffer, 0, bytesRead);
+                        if (!_Ssl) await _NetworkStream.WriteAsync(buffer, 0, bytesRead, token).ConfigureAwait(false);
+                        else await _SslStream.WriteAsync(buffer, 0, bytesRead, token).ConfigureAwait(false);
 
                         bytesRemaining -= bytesRead;
                         _Statistics.SentBytes += bytesRead;
                     }
                 }
 
-                if (!_Ssl) await _NetworkStream.FlushAsync();
-                else await _SslStream.FlushAsync();
+                if (!_Ssl) await _NetworkStream.FlushAsync(token).ConfigureAwait(false);
+                else await _SslStream.FlushAsync(token).ConfigureAwait(false);
+            }
+            catch (TaskCanceledException)
+            {
+
+            }
+            catch (OperationCanceledException)
+            {
+
             }
             finally
             {
@@ -603,7 +697,7 @@ namespace SimpleTcp
         {
             try
             {
-#if NETCOREAPP
+#if NETCOREAPP || NET5_0
 
                 _Client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
                 _Client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, _Keepalive.TcpKeepAliveTime);
@@ -633,6 +727,7 @@ namespace SimpleTcp
             catch (Exception)
             {
                 Logger?.Invoke(_Header + "keepalives not supported on this platform, disabled");
+                _Keepalive.EnableTcpKeepAlives = false;
             }
         }
 

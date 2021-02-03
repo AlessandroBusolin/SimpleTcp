@@ -8,6 +8,7 @@ namespace ServerTest
 {
     class Program
     {
+        static string _ListenerIpPort;
         static string _ListenerIp;
         static int _ListenerPort;
         static bool _Ssl;
@@ -20,9 +21,11 @@ namespace ServerTest
         static bool _RunForever = true;
 
         static void Main(string[] args)
-        {
+        { 
             _ListenerIp =    InputString("Listener IP   :", "127.0.0.1", false);
-            _ListenerPort = InputInteger("Listener Port :", 9000, true, false);
+            _ListenerPort = InputInteger("Listener Port :", 9000, true, false); 
+
+            /*
             _Ssl =          InputBoolean("Use SSL       :", false);
 
             if (_Ssl)
@@ -32,11 +35,15 @@ namespace ServerTest
             }
 
             _Server = new SimpleTcpServer(_ListenerIp, _ListenerPort, _Ssl, _PfxFilename, _PfxPassword);
+            */
 
+            // _Server = new SimpleTcpServer(_ListenerIp, + ":" + _ListenerPort));
+
+            _Server = new SimpleTcpServer(_ListenerIp, _ListenerPort);
             _Server.Events.ClientConnected += ClientConnected;
             _Server.Events.ClientDisconnected += ClientDisconnected;
             _Server.Events.DataReceived += DataReceived;
-
+            _Server.Keepalive.EnableTcpKeepAlives = true;
             _Server.Settings.IdleClientTimeoutSeconds = _IdleClientTimeoutSeconds; 
             _Server.Settings.MutuallyAuthenticate = false;
             _Server.Settings.AcceptInvalidCertificates = true;
@@ -70,9 +77,7 @@ namespace ServerTest
                         SendAsync();
                         break;
                     case "remove":
-                        Console.Write("IP:Port: ");
-                        string ipPort = Console.ReadLine();
-                        _Server.DisconnectClient(ipPort);
+                        RemoveClient();
                         break; 
                     case "dispose":
                         _Server.Dispose();
@@ -104,7 +109,7 @@ namespace ServerTest
             Console.WriteLine("[" + e.IpPort + "] client disconnected: " + e.Reason.ToString());
         }
 
-        static void DataReceived(object sender, DataReceivedFromClientEventArgs e)
+        static void DataReceived(object sender, DataReceivedEventArgs e)
         {
             Console.WriteLine("[" + e.IpPort + "]: " + Encoding.UTF8.GetString(e.Data));
         }
@@ -134,32 +139,44 @@ namespace ServerTest
             {
                 foreach (string curr in clients) Console.WriteLine(curr);
             }
-            else Console.WriteLine("None");
+            else
+            {
+                Console.WriteLine("None");
+            }
         }
 
         static void Send()
         {
-            string clientIp = InputString("Client IP:port:", _LastClientIpPort, true);
-            if (!String.IsNullOrEmpty(clientIp))
+            string ipPort = InputString("Client IP:port:", _LastClientIpPort, true);
+            if (!String.IsNullOrEmpty(ipPort))
             {
                 string data = InputString("Data:", "Hello!", true);
                 if (!String.IsNullOrEmpty(data))
                 {
-                    _Server.Send(clientIp, Encoding.UTF8.GetBytes(data));
+                    _Server.Send(ipPort, Encoding.UTF8.GetBytes(data));
                 }
             }
         }
 
         static void SendAsync()
         {
-            string clientIp = InputString("Client IP:port:", _LastClientIpPort, true);
-            if (!String.IsNullOrEmpty(clientIp))
+            string ipPort = InputString("Client IP:port:", _LastClientIpPort, true);
+            if (!String.IsNullOrEmpty(ipPort))
             {
                 string data = InputString("Data:", "Hello!", true);
                 if (!String.IsNullOrEmpty(data))
                 {
-                    _Server.SendAsync(clientIp, Encoding.UTF8.GetBytes(data)).Wait();
+                    _Server.SendAsync(ipPort, Encoding.UTF8.GetBytes(data)).Wait();
                 }
+            }
+        }
+
+        static void RemoveClient()
+        {
+            string ipPort = InputString("Client IP:port:", _LastClientIpPort, true);
+            if (!String.IsNullOrEmpty(ipPort))
+            {
+                _Server.DisconnectClient(ipPort);
             }
         }
 

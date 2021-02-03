@@ -108,12 +108,12 @@ namespace SimpleTcp
         private SimpleTcpKeepaliveSettings _Keepalive = new SimpleTcpKeepaliveSettings();
         private SimpleTcpStatistics _Statistics = new SimpleTcpStatistics();
 
-        private string _ListenerIp;
-        private IPAddress _IPAddress;
-        private int _Port;
-        private bool _Ssl;
-        private string _PfxCertFilename;
-        private string _PfxPassword;
+        private string _ListenerIp = null;
+        private IPAddress _IPAddress = null;
+        private int _Port = 0;
+        private bool _Ssl = false;
+        private string _PfxCertFilename = null;
+        private string _PfxPassword = null;
 
         private X509Certificate2 _SslCertificate = null;
         private X509Certificate2Collection _SslCertificateCollection = null;
@@ -123,56 +123,124 @@ namespace SimpleTcp
         private ConcurrentDictionary<string, DateTime> _ClientsKicked = new ConcurrentDictionary<string, DateTime>();
         private ConcurrentDictionary<string, DateTime> _ClientsTimedout = new ConcurrentDictionary<string, DateTime>();
 
-        private TcpListener _Listener;
+        private TcpListener _Listener = null;
         private bool _IsListening = false;
 
         private CancellationTokenSource _TokenSource = new CancellationTokenSource();
-        private CancellationToken _Token; 
+        private CancellationToken _Token;
+        private Task _AcceptConnections = null;
+        private Task _IdleClientMonitor = null;
 
         #endregion
 
         #region Constructors-and-Factories
 
         /// <summary>
-        /// Instantiates the TCP server.  Set the ClientConnected, ClientDisconnected, and DataReceived callbacks.  Once set, use Start() to begin listening for connections.
+        /// Instantiates the TCP server without SSL.  Set the ClientConnected, ClientDisconnected, and DataReceived callbacks.  Once set, use Start() to begin listening for connections.
         /// </summary>
-        /// <param name="listenerIp">The listener IP address or hostname.</param>
-        /// <param name="port">The TCP port on which to listen.</param>
-        /// <param name="ssl">Enable or disable SSL.</param>
-        /// <param name="pfxCertFilename">The filename of the PFX certificate file.</param>
-        /// <param name="pfxPassword">The password to the PFX certificate file.</param>
-        public SimpleTcpServer(string listenerIp, int port, bool ssl, string pfxCertFilename, string pfxPassword)
+        /// <param name="ipPort">The IP:port of the server.</param> 
+        public SimpleTcpServer(string ipPort)
         {
-            if (String.IsNullOrEmpty(listenerIp)) throw new ArgumentNullException(nameof(listenerIp));
-            if (port < 0) throw new ArgumentException("Port must be zero or greater.");
-             
-            if (String.IsNullOrEmpty(listenerIp))
+            if (String.IsNullOrEmpty(ipPort)) throw new ArgumentNullException(nameof(ipPort));
+
+            Common.ParseIpPort(ipPort, out _ListenerIp, out _Port);
+
+            if (_Port < 0) throw new ArgumentException("Port must be zero or greater.");
+            if (String.IsNullOrEmpty(_ListenerIp))
             {
                 _IPAddress = IPAddress.Loopback;
                 _ListenerIp = _IPAddress.ToString();
             }
-            else if (listenerIp == "*" || listenerIp == "+")
+            else if (_ListenerIp == "*" || _ListenerIp == "+")
+            {
+                _IPAddress = IPAddress.Any;
+            }
+            else
+            {
+                if (!IPAddress.TryParse(_ListenerIp, out _IPAddress))
+                {
+                    _IPAddress = Dns.GetHostEntry(_ListenerIp).AddressList[0];
+                    _ListenerIp = _IPAddress.ToString();
+                } 
+            }
+
+            _IsListening = false;
+            _Token = _TokenSource.Token;
+        }
+
+        /// <summary>
+        /// Instantiates the TCP server without SSL.  Set the ClientConnected, ClientDisconnected, and DataReceived callbacks.  Once set, use Start() to begin listening for connections.
+        /// </summary>
+        /// <param name="listenerIp">The listener IP address or hostname.</param>
+        /// <param name="port">The TCP port on which to listen.</param>
+        public SimpleTcpServer(string listenerIp, int port)
+        {
+            if (port < 0) throw new ArgumentException("Port must be zero or greater.");
+
+            _ListenerIp = listenerIp;
+            _Port = port;
+
+            if (String.IsNullOrEmpty(_ListenerIp))
+            {
+                _IPAddress = IPAddress.Loopback;
+                _ListenerIp = _IPAddress.ToString();
+            }
+            else if (_ListenerIp == "*" || _ListenerIp == "+")
             {
                 _IPAddress = IPAddress.Any;
                 _ListenerIp = listenerIp;
             }
             else
-            {
-                if (!IPAddress.TryParse(listenerIp, out _IPAddress))
+            { 
+                if (!IPAddress.TryParse(_ListenerIp, out _IPAddress))
                 {
                     _IPAddress = Dns.GetHostEntry(listenerIp).AddressList[0];
-                }
-
-                _ListenerIp = listenerIp;
+                    _ListenerIp = _IPAddress.ToString();
+                } 
             }
-              
-            _Port = port;
+             
+            _IsListening = false;
+            _Token = _TokenSource.Token; 
+        }
+
+        /// <summary>
+        /// Instantiates the TCP server.  Set the ClientConnected, ClientDisconnected, and DataReceived callbacks.  Once set, use Start() to begin listening for connections.
+        /// </summary>
+        /// <param name="ipPort">The IP:port of the server.</param> 
+        /// <param name="ssl">Enable or disable SSL.</param>
+        /// <param name="pfxCertFilename">The filename of the PFX certificate file.</param>
+        /// <param name="pfxPassword">The password to the PFX certificate file.</param>
+        public SimpleTcpServer(string ipPort, bool ssl, string pfxCertFilename, string pfxPassword)
+        {
+            if (String.IsNullOrEmpty(ipPort)) throw new ArgumentNullException(nameof(ipPort));
+
+            Common.ParseIpPort(ipPort, out _ListenerIp, out _Port);
+            if (_Port < 0) throw new ArgumentException("Port must be zero or greater.");
+
+            if (String.IsNullOrEmpty(_ListenerIp))
+            {
+                _IPAddress = IPAddress.Loopback;
+                _ListenerIp = _IPAddress.ToString();
+            }
+            else if (_ListenerIp == "*" || _ListenerIp == "+")
+            {
+                _IPAddress = IPAddress.Any;
+            }
+            else
+            {
+                if (!IPAddress.TryParse(_ListenerIp, out _IPAddress))
+                {
+                    _IPAddress = Dns.GetHostEntry(_ListenerIp).AddressList[0];
+                    _ListenerIp = _IPAddress.ToString();
+                }
+            }
+
             _Ssl = ssl;
             _PfxCertFilename = pfxCertFilename;
             _PfxPassword = pfxPassword;
-            _IsListening = false;  
+            _IsListening = false;
             _Token = _TokenSource.Token;
-             
+
             if (_Ssl)
             {
                 if (String.IsNullOrEmpty(pfxPassword))
@@ -188,9 +256,64 @@ namespace SimpleTcp
                 {
                     _SslCertificate
                 };
-            }
+            } 
+        }
 
-            Task.Run(() => MonitorForIdleClients(), _Token);
+        /// <summary>
+        /// Instantiates the TCP server.  Set the ClientConnected, ClientDisconnected, and DataReceived callbacks.  Once set, use Start() to begin listening for connections.
+        /// </summary>
+        /// <param name="listenerIp">The listener IP address or hostname.</param>
+        /// <param name="port">The TCP port on which to listen.</param>
+        /// <param name="ssl">Enable or disable SSL.</param>
+        /// <param name="pfxCertFilename">The filename of the PFX certificate file.</param>
+        /// <param name="pfxPassword">The password to the PFX certificate file.</param>
+        public SimpleTcpServer(string listenerIp, int port, bool ssl, string pfxCertFilename, string pfxPassword)
+        { 
+            if (port < 0) throw new ArgumentException("Port must be zero or greater.");
+
+            _ListenerIp = listenerIp;
+            _Port = port;
+
+            if (String.IsNullOrEmpty(_ListenerIp))
+            {
+                _IPAddress = IPAddress.Loopback;
+                _ListenerIp = _IPAddress.ToString();
+            }
+            else if (_ListenerIp == "*" || _ListenerIp == "+")
+            {
+                _IPAddress = IPAddress.Any; 
+            }
+            else
+            {
+                if (!IPAddress.TryParse(_ListenerIp, out _IPAddress))
+                {
+                    _IPAddress = Dns.GetHostEntry(listenerIp).AddressList[0];
+                    _ListenerIp = _IPAddress.ToString();
+                }
+            }
+             
+            _Ssl = ssl;
+            _PfxCertFilename = pfxCertFilename;
+            _PfxPassword = pfxPassword;
+            _IsListening = false;
+            _Token = _TokenSource.Token;
+
+            if (_Ssl)
+            {
+                if (String.IsNullOrEmpty(pfxPassword))
+                {
+                    _SslCertificate = new X509Certificate2(pfxCertFilename);
+                }
+                else
+                {
+                    _SslCertificate = new X509Certificate2(pfxCertFilename, pfxPassword);
+                }
+
+                _SslCertificateCollection = new X509Certificate2Collection
+                {
+                    _SslCertificate
+                };
+            } 
         }
 
         #endregion
@@ -215,13 +338,14 @@ namespace SimpleTcp
 
             _Listener = new TcpListener(_IPAddress, _Port);
 
-            if (_Keepalive.EnableTcpKeepAlives) EnableKeepalives();
+            _Listener.Start();
+            _IsListening = true;
 
-            _Listener.Start(); 
             _TokenSource = new CancellationTokenSource();
             _Token = _TokenSource.Token;
             _Statistics = new SimpleTcpStatistics();
-            Task.Run(() => AcceptConnections(), _Token); // sets _IsListening
+            _IdleClientMonitor = Task.Run(() => IdleClientMonitor(), _Token);
+            _AcceptConnections = Task.Run(() => AcceptConnections(), _Token);
         }
 
         /// <summary>
@@ -237,10 +361,14 @@ namespace SimpleTcp
             if (_Keepalive.EnableTcpKeepAlives) EnableKeepalives();
 
             _Listener.Start();
+            _IsListening = true;
+
             _TokenSource = new CancellationTokenSource();
             _Token = _TokenSource.Token;
             _Statistics = new SimpleTcpStatistics();
-            return AcceptConnections(); // sets _IsListening
+            _IdleClientMonitor = Task.Run(() => IdleClientMonitor(), _Token);
+            _AcceptConnections = Task.Run(() => AcceptConnections(), _Token);
+            return _AcceptConnections;
         }
 
         /// <summary>
@@ -331,15 +459,17 @@ namespace SimpleTcp
         /// </summary>
         /// <param name="ipPort">The client IP:port string.</param>
         /// <param name="data">String containing data to send.</param>
-        public async Task SendAsync(string ipPort, string data)
+        /// <param name="token">Cancellation token for canceling the request.</param>
+        public async Task SendAsync(string ipPort, string data, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(ipPort)) throw new ArgumentNullException(nameof(ipPort));
             if (String.IsNullOrEmpty(data)) throw new ArgumentNullException(nameof(data));
+            if (token == default(CancellationToken)) token = _Token;
             byte[] bytes = Encoding.UTF8.GetBytes(data);
             MemoryStream ms = new MemoryStream();
-            await ms.WriteAsync(bytes, 0, bytes.Length);
+            await ms.WriteAsync(bytes, 0, bytes.Length, token).ConfigureAwait(false);
             ms.Seek(0, SeekOrigin.Begin);
-            await SendInternalAsync(ipPort, bytes.Length, ms);
+            await SendInternalAsync(ipPort, bytes.Length, ms, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -347,14 +477,16 @@ namespace SimpleTcp
         /// </summary>
         /// <param name="ipPort">The client IP:port string.</param>
         /// <param name="data">Byte array containing data to send.</param>
-        public async Task SendAsync(string ipPort, byte[] data)
+        /// <param name="token">Cancellation token for canceling the request.</param>
+        public async Task SendAsync(string ipPort, byte[] data, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(ipPort)) throw new ArgumentNullException(nameof(ipPort));
             if (data == null || data.Length < 1) throw new ArgumentNullException(nameof(data));
+            if (token == default(CancellationToken)) token = _Token;
             MemoryStream ms = new MemoryStream();
-            await ms.WriteAsync(data, 0, data.Length);
+            await ms.WriteAsync(data, 0, data.Length, token).ConfigureAwait(false);
             ms.Seek(0, SeekOrigin.Begin);
-            await SendInternalAsync(ipPort, data.Length, ms);
+            await SendInternalAsync(ipPort, data.Length, ms, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -363,13 +495,15 @@ namespace SimpleTcp
         /// <param name="ipPort">The client IP:port string.</param>
         /// <param name="contentLength">The number of bytes to read from the source stream to send.</param>
         /// <param name="stream">Stream containing the data to send.</param>
-        public async Task SendAsync(string ipPort, long contentLength, Stream stream)
+        /// <param name="token">Cancellation token for canceling the request.</param>
+        public async Task SendAsync(string ipPort, long contentLength, Stream stream, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(ipPort)) throw new ArgumentNullException(nameof(ipPort));
             if (contentLength < 1) return;
             if (stream == null) throw new ArgumentNullException(nameof(stream));
             if (!stream.CanRead) throw new InvalidOperationException("Cannot read from supplied stream.");
-            await SendInternalAsync(ipPort, contentLength, stream);
+            if (token == default(CancellationToken)) token = _Token;
+            await SendInternalAsync(ipPort, contentLength, stream, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -421,8 +555,14 @@ namespace SimpleTcp
                         } 
                     }
 
-                    _TokenSource.Cancel();
-                    _TokenSource.Dispose();
+                    if (_TokenSource != null)
+                    {
+                        if (!_TokenSource.IsCancellationRequested)
+                        {
+                            _TokenSource.Cancel();
+                            _TokenSource.Dispose();
+                        }
+                    }
 
                     if (_Listener != null && _Listener.Server != null)
                     {
@@ -478,15 +618,13 @@ namespace SimpleTcp
 
         private async Task AcceptConnections()
         {
-            _IsListening = true;
-
             while (!_Token.IsCancellationRequested)
             {
                 ClientMetadata client = null;
 
                 try
                 {
-                    System.Net.Sockets.TcpClient tcpClient = await _Listener.AcceptTcpClientAsync(); 
+                    System.Net.Sockets.TcpClient tcpClient = await _Listener.AcceptTcpClientAsync().ConfigureAwait(false); 
                     string clientIp = tcpClient.Client.RemoteEndPoint.ToString();
 
                     client = new ClientMetadata(tcpClient);
@@ -502,7 +640,7 @@ namespace SimpleTcp
                             client.SslStream = new SslStream(client.NetworkStream, false);
                         }
 
-                        bool success = await StartTls(client);
+                        bool success = await StartTls(client).ConfigureAwait(false);
                         if (!success)
                         {
                             client.Dispose();
@@ -513,8 +651,18 @@ namespace SimpleTcp
                     _Clients.TryAdd(clientIp, client); 
                     _ClientsLastSeen.TryAdd(clientIp, DateTime.Now); 
                     Logger?.Invoke(_Header + "starting data receiver for: " + clientIp); 
-                    _Events.HandleClientConnected(this, new ClientConnectedEventArgs(clientIp)); 
-                    Task unawaited = Task.Run(() => DataReceiver(client), _Token);
+                    _Events.HandleClientConnected(this, new ClientConnectedEventArgs(clientIp));
+                     
+                    if (_Keepalive.EnableTcpKeepAlives) EnableKeepalives(tcpClient); 
+
+                    CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(client.Token, _Token);
+                    Task unawaited = Task.Run(() => DataReceiver(client), linkedCts.Token);
+                }
+                catch (TaskCanceledException)
+                {
+                    _IsListening = false;
+                    if (client != null) client.Dispose();
+                    return;
                 }
                 catch (OperationCanceledException)
                 {
@@ -546,7 +694,7 @@ namespace SimpleTcp
                     _SslCertificate,
                     _Settings.MutuallyAuthenticate, 
                     SslProtocols.Tls12, 
-                    !_Settings.AcceptInvalidCertificates);
+                    !_Settings.AcceptInvalidCertificates).ConfigureAwait(false);
 
                 if (!client.SslStream.IsEncrypted)
                 {
@@ -588,13 +736,14 @@ namespace SimpleTcp
         private async Task DataReceiver(ClientMetadata client)
         {
             Logger?.Invoke(_Header + "data receiver started for client " + client.IpPort);
-            
+
+            CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_Token, client.Token);
+
             while (true)
             {
                 try
                 { 
-                    if (client.Token.IsCancellationRequested 
-                        || !IsClientConnected(client.Client))
+                    if (!IsClientConnected(client.Client))
                     {
                         Logger?.Invoke(_Header + "client " + client.IpPort + " disconnected");
                         break;
@@ -606,24 +755,36 @@ namespace SimpleTcp
                         break;
                     } 
 
-                    byte[] data = await DataReadAsync(client);
+                    byte[] data = await DataReadAsync(client, linkedCts.Token).ConfigureAwait(false);
                     if (data == null)
                     { 
-                        await Task.Delay(30);
+                        await Task.Delay(10).ConfigureAwait(false);
                         continue;
                     }
 
-                    _Events.HandleDataReceived(this, new DataReceivedFromClientEventArgs(client.IpPort, data));
+                    Task unawaited = Task.Run(() => _Events.HandleDataReceived(this, new DataReceivedEventArgs(client.IpPort, data)), linkedCts.Token);
                     _Statistics.ReceivedBytes += data.Length;
                     UpdateClientLastSeen(client.IpPort);
                 }
+                catch (IOException)
+                {
+                    Logger?.Invoke(_Header + "data receiver canceled, peer disconnected [" + client.IpPort + "]");
+                }
                 catch (SocketException)
                 {
-                    Logger?.Invoke(_Header + "data receiver socket exception (disconnection) for " + client.IpPort);
+                    Logger?.Invoke(_Header + "data receiver canceled, peer disconnected [" + client.IpPort + "]");
+                }
+                catch (TaskCanceledException)
+                {
+                    Logger?.Invoke(_Header + "data receiver task canceled [" + client.IpPort + "]");
+                }
+                catch (ObjectDisposedException)
+                {
+                    Logger?.Invoke(_Header + "data receiver canceled due to disposal [" + client.IpPort + "]");
                 }
                 catch (Exception e)
                 {
-                    Logger?.Invoke(_Header + "data receiver exception for client " + client.IpPort + ":" +
+                    Logger?.Invoke(_Header + "data receiver exception [" + client.IpPort + "]:" +
                         Environment.NewLine +
                         e.ToString() +
                         Environment.NewLine);
@@ -655,13 +816,8 @@ namespace SimpleTcp
             client.Dispose();
         }
            
-        private async Task<byte[]> DataReadAsync(ClientMetadata client)
+        private async Task<byte[]> DataReadAsync(ClientMetadata client, CancellationToken token)
         { 
-            if (client.Token.IsCancellationRequested) throw new OperationCanceledException();
-            if (!client.NetworkStream.CanRead) return null;
-            if (!client.NetworkStream.DataAvailable) return null;
-            if (_Ssl && !client.SslStream.CanRead) return null;
-
             byte[] buffer = new byte[_Settings.StreamBufferSize];
             int read = 0;
 
@@ -671,11 +827,11 @@ namespace SimpleTcp
                 {
                     while (true)
                     {
-                        read = await client.NetworkStream.ReadAsync(buffer, 0, buffer.Length);
+                        read = await client.NetworkStream.ReadAsync(buffer, 0, buffer.Length, token).ConfigureAwait(false);
 
                         if (read > 0)
                         {
-                            ms.Write(buffer, 0, read);
+                            await ms.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
                             return ms.ToArray();
                         }
                         else
@@ -691,11 +847,11 @@ namespace SimpleTcp
                 {
                     while (true)
                     {
-                        read = await client.SslStream.ReadAsync(buffer, 0, buffer.Length);
+                        read = await client.SslStream.ReadAsync(buffer, 0, buffer.Length, token).ConfigureAwait(false);
 
                         if (read > 0)
                         {
-                            ms.Write(buffer, 0, read);
+                            await ms.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
                             return ms.ToArray();
                         }
                         else
@@ -707,11 +863,11 @@ namespace SimpleTcp
             } 
         }
 
-        private async Task MonitorForIdleClients()
+        private async Task IdleClientMonitor()
         {
             while (!_Token.IsCancellationRequested)
             { 
-                await Task.Delay(_Settings.IdleClientEvaluationIntervalSeconds, _Token);
+                await Task.Delay(_Settings.IdleClientEvaluationIntervalSeconds, _Token).ConfigureAwait(false);
 
                 if (_Settings.IdleClientTimeoutSeconds == 0) continue;
 
@@ -783,35 +939,44 @@ namespace SimpleTcp
             }
         }
 
-        private async Task SendInternalAsync(string ipPort, long contentLength, Stream stream)
+        private async Task SendInternalAsync(string ipPort, long contentLength, Stream stream, CancellationToken token)
         {
             ClientMetadata client = null;
-            if (!_Clients.TryGetValue(ipPort, out client)) return;
-            if (client == null) return;
-
-            long bytesRemaining = contentLength;
-            int bytesRead = 0;
-            byte[] buffer = new byte[_Settings.StreamBufferSize];
 
             try
             {
-                await client.SendLock.WaitAsync();
+                if (!_Clients.TryGetValue(ipPort, out client)) return;
+                if (client == null) return;
+
+                long bytesRemaining = contentLength;
+                int bytesRead = 0;
+                byte[] buffer = new byte[_Settings.StreamBufferSize];
+
+                await client.SendLock.WaitAsync(token).ConfigureAwait(false);
 
                 while (bytesRemaining > 0)
                 {
-                    bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                    bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, token).ConfigureAwait(false);
                     if (bytesRead > 0)
                     {
-                        if (!_Ssl) await client.NetworkStream.WriteAsync(buffer, 0, bytesRead);
-                        else await client.SslStream.WriteAsync(buffer, 0, bytesRead);
+                        if (!_Ssl) await client.NetworkStream.WriteAsync(buffer, 0, bytesRead, token).ConfigureAwait(false);
+                        else await client.SslStream.WriteAsync(buffer, 0, bytesRead, token).ConfigureAwait(false);
 
                         bytesRemaining -= bytesRead;
                         _Statistics.SentBytes += bytesRead;
                     }
                 }
 
-                if (!_Ssl) await client.NetworkStream.FlushAsync();
-                else await client.SslStream.FlushAsync();
+                if (!_Ssl) await client.NetworkStream.FlushAsync(token).ConfigureAwait(false);
+                else await client.SslStream.FlushAsync(token).ConfigureAwait(false);
+            }
+            catch (TaskCanceledException)
+            {
+
+            }
+            catch (OperationCanceledException)
+            {
+
             }
             finally
             {
@@ -823,7 +988,7 @@ namespace SimpleTcp
         {
             try
             {
-#if NETCOREAPP
+#if NETCOREAPP || NET5_0
 
                 _Listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
                 _Listener.Server.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, _Keepalive.TcpKeepAliveTime);
@@ -853,6 +1018,44 @@ namespace SimpleTcp
             catch (Exception)
             {
                 Logger?.Invoke(_Header + "keepalives not supported on this platform, disabled");
+            }
+        }
+
+        private void EnableKeepalives(TcpClient client)
+        {
+            try
+            {
+#if NETCOREAPP || NET5_0
+
+                client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, _Keepalive.TcpKeepAliveTime);
+                client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, _Keepalive.TcpKeepAliveInterval);
+                client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, _Keepalive.TcpKeepAliveRetryCount);
+
+#elif NETFRAMEWORK
+
+                byte[] keepAlive = new byte[12];
+
+                // Turn keepalive on
+                Buffer.BlockCopy(BitConverter.GetBytes((uint)1), 0, keepAlive, 0, 4);
+
+                // Set TCP keepalive time
+                Buffer.BlockCopy(BitConverter.GetBytes((uint)_Keepalive.TcpKeepAliveTime), 0, keepAlive, 4, 4); 
+
+                // Set TCP keepalive interval
+                Buffer.BlockCopy(BitConverter.GetBytes((uint)_Keepalive.TcpKeepAliveInterval), 0, keepAlive, 8, 4); 
+
+                // Set keepalive settings on the underlying Socket
+                client.Client.IOControl(IOControlCode.KeepAliveValues, keepAlive, null);
+
+#elif NETSTANDARD
+
+#endif
+            }
+            catch (Exception)
+            {
+                Logger?.Invoke(_Header + "keepalives not supported on this platform, disabled");
+                _Keepalive.EnableTcpKeepAlives = false;
             }
         }
 
