@@ -514,7 +514,9 @@ namespace SimpleTcp
         {
             if (String.IsNullOrEmpty(ipPort)) throw new ArgumentNullException(nameof(ipPort));
 
-            if (!_Clients.TryGetValue(ipPort, out ClientMetadata client))
+            ClientMetadata client = null;
+
+            if (!_Clients.TryGetValue(ipPort, out client))
             {
                 Logger?.Invoke(_Header + "unable to find client: " + ipPort); 
             }
@@ -522,13 +524,20 @@ namespace SimpleTcp
             {
                 if (!_ClientsTimedout.ContainsKey(ipPort))
                 {
-                    Logger?.Invoke(_Header + "kicking: " + ipPort); 
+                    Logger?.Invoke(_Header + "kicking: " + ipPort);
                     _ClientsKicked.TryAdd(ipPort, DateTime.Now);
                 }
+            }
 
-                _Clients.TryRemove(client.IpPort, out ClientMetadata destroyed);
-                client.Dispose(); 
-                Logger?.Invoke(_Header + "disposed: " + ipPort); 
+            if (client != null)
+            {
+                if (!client.TokenSource.IsCancellationRequested)
+                {
+                    client.TokenSource.Cancel();
+                    Logger?.Invoke(_Header + "requesting disposal of: " + ipPort);
+                }
+
+                client.Dispose();
             }
         }
 
@@ -735,7 +744,8 @@ namespace SimpleTcp
 
         private async Task DataReceiver(ClientMetadata client)
         {
-            Logger?.Invoke(_Header + "data receiver started for client " + client.IpPort);
+            string ipPort = client.IpPort;
+            Logger?.Invoke(_Header + "data receiver started for client " + ipPort);
 
             CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_Token, client.Token);
 
@@ -745,46 +755,46 @@ namespace SimpleTcp
                 { 
                     if (!IsClientConnected(client.Client))
                     {
-                        Logger?.Invoke(_Header + "client " + client.IpPort + " disconnected");
+                        Logger?.Invoke(_Header + "client " + ipPort + " disconnected");
                         break;
                     }
 
                     if (client.Token.IsCancellationRequested)
                     {
-                        Logger?.Invoke(_Header + "cancellation requested (data receiver for client " + client.IpPort + ")");
+                        Logger?.Invoke(_Header + "cancellation requested (data receiver for client " + ipPort + ")");
                         break;
                     } 
 
                     byte[] data = await DataReadAsync(client, linkedCts.Token).ConfigureAwait(false);
                     if (data == null)
-                    { 
-                        await Task.Delay(10).ConfigureAwait(false);
+                    {
+                        await Task.Delay(10, linkedCts.Token).ConfigureAwait(false);
                         continue;
                     }
 
-                    Task unawaited = Task.Run(() => _Events.HandleDataReceived(this, new DataReceivedEventArgs(client.IpPort, data)), linkedCts.Token);
+                    Task unawaited = Task.Run(() => _Events.HandleDataReceived(this, new DataReceivedEventArgs(ipPort, data)), linkedCts.Token);
                     _Statistics.ReceivedBytes += data.Length;
                     UpdateClientLastSeen(client.IpPort);
                 }
                 catch (IOException)
                 {
-                    Logger?.Invoke(_Header + "data receiver canceled, peer disconnected [" + client.IpPort + "]");
+                    Logger?.Invoke(_Header + "data receiver canceled, peer disconnected [" + ipPort + "]");
                 }
                 catch (SocketException)
                 {
-                    Logger?.Invoke(_Header + "data receiver canceled, peer disconnected [" + client.IpPort + "]");
+                    Logger?.Invoke(_Header + "data receiver canceled, peer disconnected [" + ipPort + "]");
                 }
                 catch (TaskCanceledException)
                 {
-                    Logger?.Invoke(_Header + "data receiver task canceled [" + client.IpPort + "]");
+                    Logger?.Invoke(_Header + "data receiver task canceled [" + ipPort + "]");
                 }
                 catch (ObjectDisposedException)
                 {
-                    Logger?.Invoke(_Header + "data receiver canceled due to disposal [" + client.IpPort + "]");
+                    Logger?.Invoke(_Header + "data receiver canceled due to disposal [" + ipPort + "]");
                 }
                 catch (Exception e)
                 {
-                    Logger?.Invoke(_Header + "data receiver exception [" + client.IpPort + "]:" +
+                    Logger?.Invoke(_Header + "data receiver exception [" + ipPort + "]:" +
                         Environment.NewLine +
                         e.ToString() +
                         Environment.NewLine);
@@ -793,27 +803,27 @@ namespace SimpleTcp
                 }
             }
 
-            Logger?.Invoke(_Header + "data receiver terminated for client " + client.IpPort);
+            Logger?.Invoke(_Header + "data receiver terminated for client " + ipPort);
 
-            if (_ClientsKicked.ContainsKey(client.IpPort))
+            if (_ClientsKicked.ContainsKey(ipPort))
             {
-                _Events.HandleClientDisconnected(this, new ClientDisconnectedEventArgs(client.IpPort, DisconnectReason.Kicked));
+                _Events.HandleClientDisconnected(this, new ClientDisconnectedEventArgs(ipPort, DisconnectReason.Kicked));
             }
             else if (_ClientsTimedout.ContainsKey(client.IpPort))
             {
-                _Events.HandleClientDisconnected(this, new ClientDisconnectedEventArgs(client.IpPort, DisconnectReason.Timeout));
+                _Events.HandleClientDisconnected(this, new ClientDisconnectedEventArgs(ipPort, DisconnectReason.Timeout));
             }
             else
             {
-                _Events.HandleClientDisconnected(this, new ClientDisconnectedEventArgs(client.IpPort, DisconnectReason.Normal));
+                _Events.HandleClientDisconnected(this, new ClientDisconnectedEventArgs(ipPort, DisconnectReason.Normal));
             }
 
-            DateTime removedTs;
-            _Clients.TryRemove(client.IpPort, out ClientMetadata destroyed);
-            _ClientsLastSeen.TryRemove(client.IpPort, out removedTs);
-            _ClientsKicked.TryRemove(client.IpPort, out removedTs);
-            _ClientsTimedout.TryRemove(client.IpPort, out removedTs); 
-            client.Dispose();
+            _Clients.TryRemove(ipPort, out _);
+            _ClientsLastSeen.TryRemove(ipPort, out _);
+            _ClientsKicked.TryRemove(ipPort, out _);
+            _ClientsTimedout.TryRemove(ipPort, out _); 
+
+            if (client != null) client.Dispose();
         }
            
         private async Task<byte[]> DataReadAsync(ClientMetadata client, CancellationToken token)
@@ -867,13 +877,13 @@ namespace SimpleTcp
         {
             while (!_Token.IsCancellationRequested)
             { 
-                await Task.Delay(_Settings.IdleClientEvaluationIntervalSeconds, _Token).ConfigureAwait(false);
+                await Task.Delay(_Settings.IdleClientEvaluationIntervalMs, _Token).ConfigureAwait(false);
 
-                if (_Settings.IdleClientTimeoutSeconds == 0) continue;
+                if (_Settings.IdleClientTimeoutMs == 0) continue;
 
                 try
                 { 
-                    DateTime idleTimestamp = DateTime.Now.AddSeconds(-1 * _Settings.IdleClientTimeoutSeconds);
+                    DateTime idleTimestamp = DateTime.Now.AddMilliseconds(-1 * _Settings.IdleClientTimeoutMs);
 
                     foreach (KeyValuePair<string, DateTime> curr in _ClientsLastSeen)
                     { 

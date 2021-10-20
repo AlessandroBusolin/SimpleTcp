@@ -2,11 +2,23 @@
 
 ## Current Version
 
+v2.4.1
+
+- Automatic client-side timeout and disconnect due to server inactivity; see ```Settings.IdleServerTimeoutMs```
+
+## Previous Versions
+
+v2.4.0
+
+- Breaking change, timeouts now use milliseconds instead of seconds (does not apply to keepalive settings)
+
+v2.3.0
+
+- ConnectWithRetries method to continually retry connecting to the server over a specified number of seconds
+
 v2.2.1
 
 - Breaking change; TCP keepalives now disabled by default due to incompatibility and problems on some platforms
-
-## Previous Versions
 
 v2.2.0
  

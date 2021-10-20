@@ -138,8 +138,13 @@ namespace SimpleTcp
         private SemaphoreSlim _SendLock = new SemaphoreSlim(1, 1); 
         private bool _IsConnected = false;
 
+        private Task _DataReceiver = null;
+        private Task _IdleServerMonitor = null;
         private CancellationTokenSource _TokenSource = new CancellationTokenSource();
         private CancellationToken _Token;
+
+        private DateTime _LastActivity = DateTime.Now;
+        private bool _IsTimeout = false;
 
         #endregion
 
@@ -251,10 +256,10 @@ namespace SimpleTcp
         }
 
         /// <summary>
-        /// Establish the connection to the server.
+        /// Establish a connection to the server.
         /// </summary>
         public void Connect()
-        {
+        { 
             if (IsConnected)
             {
                 Logger?.Invoke(_Header + "already connected");
@@ -277,47 +282,29 @@ namespace SimpleTcp
 
             try
             {
-                if (!ar.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(_Settings.ConnectTimeoutSeconds), false))
+                if (!ar.AsyncWaitHandle.WaitOne(TimeSpan.FromMilliseconds(_Settings.ConnectTimeoutMs), false))
                 {
                     _Client.Close();
                     throw new TimeoutException("Timeout connecting to " + ServerIpPort);
                 }
 
-                _Client.EndConnect(ar); 
+                _Client.EndConnect(ar);
                 _NetworkStream = _Client.GetStream();
 
                 if (_Ssl)
                 {
                     if (_Settings.AcceptInvalidCertificates)
-                    {
-                        // accept invalid certs
                         _SslStream = new SslStream(_NetworkStream, false, new RemoteCertificateValidationCallback(AcceptCertificate));
-                    }
                     else
-                    {
-                        // do not accept invalid SSL certificates
                         _SslStream = new SslStream(_NetworkStream, false);
-                    }
 
                     _SslStream.AuthenticateAsClient(_ServerIp, _SslCertCollection, SslProtocols.Tls12, !_Settings.AcceptInvalidCertificates);
 
-                    if (!_SslStream.IsEncrypted)
-                    {
-                        throw new AuthenticationException("Stream is not encrypted");
-                    }
+                    if (!_SslStream.IsEncrypted) throw new AuthenticationException("Stream is not encrypted");
+                    if (!_SslStream.IsAuthenticated) throw new AuthenticationException("Stream is not authenticated");
+                    if (_Settings.MutuallyAuthenticate && !_SslStream.IsMutuallyAuthenticated) throw new AuthenticationException("Mutual authentication failed");
+                }
 
-                    if (!_SslStream.IsAuthenticated)
-                    {
-                        throw new AuthenticationException("Stream is not authenticated");
-                    }
-
-                    if (_Settings.MutuallyAuthenticate && !_SslStream.IsMutuallyAuthenticated)
-                    {
-                        throw new AuthenticationException("Mutual authentication failed");
-                    }
-                } 
-
-                _IsConnected = true;
                 if (_Keepalive.EnableTcpKeepAlives) EnableKeepalives();
             }
             catch (Exception)
@@ -329,9 +316,125 @@ namespace SimpleTcp
                 wh.Close();
             }
 
+            _IsConnected = true;
+            _LastActivity = DateTime.Now;
+            _IsTimeout = false;
             _Events.HandleConnected(this, new ClientConnectedEventArgs(ServerIpPort));
+            _DataReceiver = Task.Run(() => DataReceiver(_Token), _Token);
+            _IdleServerMonitor = Task.Run(() => IdleServerMonitor(), _Token);
+        }
 
-            Task.Run(() => DataReceiver(_Token), _Token);
+        /// <summary>
+        /// Establish the connection to the server with retries up to either the timeout specified or the value in Settings.ConnectTimeoutMs.
+        /// </summary>
+        /// <param name="timeoutMs">The amount of time in milliseconds to continue attempting connections.</param>
+        public void ConnectWithRetries(int? timeoutMs = null)
+        {
+            if (timeoutMs != null && timeoutMs < 1) throw new ArgumentException("Timeout milliseconds must be greater than zero.");
+            if (timeoutMs != null) _Settings.ConnectTimeoutMs = timeoutMs.Value;
+
+            if (IsConnected)
+            {
+                Logger?.Invoke(_Header + "already connected");
+                return;
+            }
+            else
+            {
+                Logger?.Invoke(_Header + "initializing client");
+
+                InitializeClient(_Ssl, _PfxCertFilename, _PfxPassword);
+
+                Logger?.Invoke(_Header + "connecting to " + ServerIpPort);
+            }
+
+            _TokenSource = new CancellationTokenSource();
+            _Token = _TokenSource.Token;
+
+            CancellationTokenSource connectTokenSource = new CancellationTokenSource();
+            CancellationToken connectToken = connectTokenSource.Token;
+            
+            Task cancelTask = Task.Delay(_Settings.ConnectTimeoutMs, _Token);
+            Task connectTask = Task.Run(() =>
+            {
+                int retryCount = 0;
+
+                while (true)
+                {
+                    try
+                    {
+                        string msg = _Header + "attempting connection to " + _ServerIp + ":" + _ServerPort;
+                        if (retryCount > 0) msg += " (" + retryCount + " retries)";
+                        Logger?.Invoke(msg);
+
+                        _Client.Dispose();
+                        _Client = new TcpClient();
+                        _Client.ConnectAsync(_ServerIp, _ServerPort).Wait(1000, connectToken);
+
+                        if (_Client.Connected)
+                        {
+                            Logger?.Invoke(_Header + "connected to " + _ServerIp + ":" + _ServerPort);
+                            break;
+                        }
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        break;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception e)
+                    {
+                        Logger?.Invoke(_Header + "failed connecting to " + _ServerIp + ":" + _ServerPort + ": " + e.Message);
+                    }
+                    finally
+                    {
+                        retryCount++;
+                    }
+                }
+            }, connectToken);
+            
+            Task.WhenAny(cancelTask, connectTask).Wait();
+
+            if (cancelTask.IsCompleted)
+            {
+                connectTokenSource.Cancel();
+                _Client.Close();
+                throw new TimeoutException("Timeout connecting to " + ServerIpPort);
+            }
+
+            try
+            {
+                _NetworkStream = _Client.GetStream();
+
+                if (_Ssl)
+                {
+                    if (_Settings.AcceptInvalidCertificates)
+                        _SslStream = new SslStream(_NetworkStream, false, new RemoteCertificateValidationCallback(AcceptCertificate));
+                    else
+                        _SslStream = new SslStream(_NetworkStream, false);
+
+                    _SslStream.AuthenticateAsClient(_ServerIp, _SslCertCollection, SslProtocols.Tls12, !_Settings.AcceptInvalidCertificates);
+
+                    if (!_SslStream.IsEncrypted) throw new AuthenticationException("Stream is not encrypted");
+                    if (!_SslStream.IsAuthenticated) throw new AuthenticationException("Stream is not authenticated");
+                    if (_Settings.MutuallyAuthenticate && !_SslStream.IsMutuallyAuthenticated) throw new AuthenticationException("Mutual authentication failed");
+                }
+
+                if (_Keepalive.EnableTcpKeepAlives) EnableKeepalives();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+
+            _IsConnected = true;
+            _LastActivity = DateTime.Now;
+            _IsTimeout = false;
+            _Events.HandleConnected(this, new ClientConnectedEventArgs(ServerIpPort));
+            _DataReceiver = Task.Run(() => DataReceiver(_Token), _Token);
+            _IdleServerMonitor = Task.Run(() => IdleServerMonitor(), _Token);
         }
 
         /// <summary>
@@ -545,6 +648,7 @@ namespace SimpleTcp
                         continue;
                     }
 
+                    _LastActivity = DateTime.Now;
                     _Events.HandleDataReceived(this, new DataReceivedEventArgs(ServerIpPort, data));
                     _Statistics.ReceivedBytes += data.Length;
                 } 
@@ -561,6 +665,10 @@ namespace SimpleTcp
             {
                 Logger?.Invoke(_Header + "data receiver task canceled");
             }
+            catch (OperationCanceledException)
+            {
+                Logger?.Invoke(_Header + "data receiver operation canceled");
+            }
             catch (ObjectDisposedException)
             {
                 Logger?.Invoke(_Header + "data receiver canceled due to disposal");
@@ -574,7 +682,11 @@ namespace SimpleTcp
             }
 
             _IsConnected = false;
-            _Events.HandleClientDisconnected(this, new ClientDisconnectedEventArgs(ServerIpPort, DisconnectReason.Normal));
+
+            if (!_IsTimeout) _Events.HandleClientDisconnected(this, new ClientDisconnectedEventArgs(ServerIpPort, DisconnectReason.Normal));
+            else _Events.HandleClientDisconnected(this, new ClientDisconnectedEventArgs(ServerIpPort, DisconnectReason.Timeout));
+
+            Dispose();
         }
 
         private async Task<byte[]> DataReadAsync(CancellationToken token)
@@ -728,6 +840,26 @@ namespace SimpleTcp
             {
                 Logger?.Invoke(_Header + "keepalives not supported on this platform, disabled");
                 _Keepalive.EnableTcpKeepAlives = false;
+            }
+        }
+
+        private async Task IdleServerMonitor()
+        {
+            while (!_Token.IsCancellationRequested)
+            {
+                await Task.Delay(_Settings.IdleServerEvaluationIntervalMs, _Token).ConfigureAwait(false);
+
+                if (_Settings.IdleServerTimeoutMs == 0) continue;
+
+                DateTime timeoutTime = _LastActivity.AddMilliseconds(_Settings.IdleServerTimeoutMs);
+
+                if (DateTime.Now > timeoutTime)
+                {
+                    Logger?.Invoke(_Header + "disconnecting from " + ServerIpPort + " due to timeout");
+                    _IsConnected = false;
+                    _IsTimeout = true;
+                    _TokenSource.Cancel(); // DataReceiver will fire events including dispose
+                }
             }
         }
 

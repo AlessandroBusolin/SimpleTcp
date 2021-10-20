@@ -1,19 +1,21 @@
-﻿![alt tag](https://github.com/jchristn/simpletcp/blob/master/assets/icon.ico)
+﻿![alt tag](https://github.com/jchristn/supersimpletcp/blob/master/assets/icon.ico)
 
-# SimpleTcp
+# SuperSimpleTcp
 
 ## Simple wrapper for TCP client and server in C# with SSL support
 
 [![NuGet Version](https://img.shields.io/nuget/v/SuperSimpleTcp.svg?style=flat)](https://www.nuget.org/packages/SuperSimpleTcp/) [![NuGet](https://img.shields.io/nuget/dt/SuperSimpleTcp.svg)](https://www.nuget.org/packages/SuperSimpleTcp)    
 
-SimpleTcp provides simple methods for creating your own TCP-based sockets application, enabling easy integration of connection management, sending, and receiving data.  
+SuperSimpleTcp provides simple methods for creating your own TCP-based sockets application, enabling easy integration of connection management, sending, and receiving data.  
 
 - If you need integrated framing, please use WatsonTcp (https://github.com/jchristn/WatsonTcp)
 - If you need discrete control over the number of bytes read from or written to a socket, please use CavemanTcp (https://github.com/jchristn/CavemanTcp)
 
-## New in v2.2.1
+**I would highly encourage you to fully understand what message framing is and why it's important before using this library: https://blog.stephencleary.com/2009/04/message-framing.html**
 
-- Breaking change; TCP keepalives now disabled by default due to incompatibility and problems on some platforms
+## New in v2.4.1
+
+- Automatic client-side timeout and disconnect due to server inactivity; see ```Settings.IdleServerTimeoutMs```
 
 ## Help or Feedback
 
@@ -97,6 +99,13 @@ static void DataReceived(object sender, DataReceivedEventArgs e)
 }
 ```
 
+### Connect With Retries
+
+The ```ConnectWithRetries``` method on SimpleTcpClient can be used instead of ```Connect``` to continually attempt to establish connections with the server for a given period of time.  Like ```Connect```, ```ConnectWithRetries``` will throw a ```TimeoutException``` if it is unable to successfully establish a connection.
+```csharp
+client.ConnectWithRetries(10); // try for up to 10 seconds
+```
+
 ### Additional Configuration Options
 
 Both SimpleTcpClient and SimpleTcpServer have settable values for:
@@ -163,6 +172,12 @@ Some important notes about TCP keepalives:
 mono --aot=nrgctx-trampolines=8096,nimt-trampolines=8096,ntrampolines=4048 --server myapp.exe
 mono --server myapp.exe
 ```
+
+## Special Thanks
+
+A special thanks to the community of people that have contributed to or otherwise improved this project!
+
+@u1035 @cmeeren @tinohager @pha3z @opnop @kopkarmecoindo @simonhaines @matt1tk @lukeacat @exergist @maynardsi @sector13371 
 
 ## Version History
 
