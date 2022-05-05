@@ -1,7 +1,7 @@
-﻿using System;
+﻿using SuperSimpleTcp;
+using System;
 using System.Collections.Generic;
 using System.Text;
-using SimpleTcp;
 
 namespace ClientTest
 {
@@ -20,25 +20,23 @@ namespace ClientTest
         {
             _ServerIp =    InputString("Server IP   :", "127.0.0.1", false);
             _ServerPort = InputInteger("Server Port :", 9000, true, false);
-
-            /*
             _Ssl =        InputBoolean("Use SSL     :", false);
 
             if (_Ssl)
             {
                 _PfxFilename = InputString("PFX Certificate File:", "simpletcp.pfx", false);
                 _PfxPassword = InputString("PFX File Password:", "simpletcp", false);
+                _Client = new SimpleTcpClient(_ServerIp, _ServerPort, _Ssl, _PfxFilename, _PfxPassword);
+            }
+            else
+            {
+                _Client = new SimpleTcpClient(_ServerIp, _ServerPort);
             }
 
-            _Client = new SimpleTcpClient(_ServerIp, _ServerPort, _Ssl, _PfxFilename, _PfxPassword);
-            */
-
-            // _Client = new SimpleTcpClient((_ServerIp + ":" + _ServerPort));
-
-            _Client = new SimpleTcpClient(_ServerIp, _ServerPort);
             _Client.Events.Connected += Connected;
             _Client.Events.Disconnected += Disconnected;
             _Client.Events.DataReceived += DataReceived;
+            _Client.Events.DataSent += DataSent;
             _Client.Keepalive.EnableTcpKeepAlives = true; 
             _Client.Settings.MutuallyAuthenticate = false;
             _Client.Settings.AcceptInvalidCertificates = true;
@@ -99,19 +97,24 @@ namespace ClientTest
             Console.WriteLine("Connected: " + _Client.IsConnected);
         }
 
-        static void Connected(object sender, EventArgs e)
+        static void Connected(object sender, ConnectionEventArgs e)
         {
-            Console.WriteLine("*** Server connected");
+            Console.WriteLine("*** Server " + e.IpPort + " connected");
         }
 
-        static void Disconnected(object sender, EventArgs e)
+        static void Disconnected(object sender, ConnectionEventArgs e)
         {
-            Console.WriteLine("*** Server disconnected"); 
+            Console.WriteLine("*** Server " + e.IpPort + " disconnected"); 
         }
 
         static void DataReceived(object sender, DataReceivedEventArgs e)
         {
             Console.WriteLine("[" + e.IpPort + "] " + Encoding.UTF8.GetString(e.Data));
+        }
+
+        private static void DataSent(object sender, DataSentEventArgs e)
+        {
+            Console.WriteLine("[" + e.IpPort + "] sent " + e.BytesSent + " bytes");
         }
 
         static void Menu()

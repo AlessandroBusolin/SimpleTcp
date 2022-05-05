@@ -1,8 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
 
-namespace SimpleTcp
+namespace SuperSimpleTcp
 {
     /// <summary>
     /// SimpleTcp client settings.
@@ -18,13 +16,13 @@ namespace SimpleTcp
         {
             get
             {
-                return _StreamBufferSize;
+                return _streamBufferSize;
             }
             set
             {
                 if (value < 1) throw new ArgumentException("StreamBufferSize must be one or greater.");
                 if (value > 65536) throw new ArgumentException("StreamBufferSize must be less than 65,536.");
-                _StreamBufferSize = value;
+                _streamBufferSize = value;
             }
         }
 
@@ -35,12 +33,28 @@ namespace SimpleTcp
         {
             get
             {
-                return _ConnectTimeoutMs;
+                return _connectTimeoutMs;
             }
             set
             {
                 if (value < 1) throw new ArgumentException("ConnectTimeoutMs must be greater than zero.");
-                _ConnectTimeoutMs = value;
+                _connectTimeoutMs = value;
+            }
+        }
+
+        /// <summary>
+        /// The number of milliseconds to wait when attempting to read before returning null.
+        /// </summary>
+        public int ReadTimeoutMs
+        {
+            get
+            {
+                return _readTimeoutMs;
+            }
+            set
+            {
+                if (value < 1) throw new ArgumentException("ReadTimeoutMs must be greater than zero.");
+                _readTimeoutMs = value;
             }
         }
 
@@ -54,12 +68,12 @@ namespace SimpleTcp
         {
             get
             {
-                return _IdleServerTimeoutMs;
+                return _idleServerTimeoutMs;
             }
             set
             {
                 if (value < 0) throw new ArgumentException("IdleClientTimeoutMs must be zero or greater.");
-                _IdleServerTimeoutMs = value;
+                _idleServerTimeoutMs = value;
             }
         }
 
@@ -70,12 +84,28 @@ namespace SimpleTcp
         {
             get
             {
-                return _IdleServerEvaluationIntervalMs;
+                return _idleServerEvaluationIntervalMs;
             }
             set
             {
                 if (value < 1) throw new ArgumentOutOfRangeException("IdleServerEvaluationIntervalMs must be one or greater.");
-                _IdleServerEvaluationIntervalMs = value;
+                _idleServerEvaluationIntervalMs = value;
+            }
+        }
+
+        /// <summary>
+        /// Number of milliseconds to wait between each iteration of evaluating the server connection to see if the connection is lost.
+        /// </summary>
+        public int ConnectionLostEvaluationIntervalMs
+        {
+            get
+            {
+                return _connectionLostEvaluationIntervalMs;
+            }
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException("ConnectionLostEvaluationIntervalMs must be one or greater.");
+                _connectionLostEvaluationIntervalMs = value;
             }
         }
 
@@ -93,10 +123,12 @@ namespace SimpleTcp
 
         #region Private-Members
 
-        private int _StreamBufferSize = 65536;
-        private int _ConnectTimeoutMs = 5000;
-        private int _IdleServerTimeoutMs = 0;
-        private int _IdleServerEvaluationIntervalMs = 1000;
+        private int _streamBufferSize = 65536;
+        private int _connectTimeoutMs = 5000;
+        private int _readTimeoutMs = 1000;
+        private int _idleServerTimeoutMs = 0;
+        private int _idleServerEvaluationIntervalMs = 1000;
+        private int _connectionLostEvaluationIntervalMs = 200;
 
         #endregion
 
@@ -109,14 +141,6 @@ namespace SimpleTcp
         {
 
         }
-
-        #endregion
-
-        #region Public-Methods
-
-        #endregion
-
-        #region Private-Methods
 
         #endregion
     }

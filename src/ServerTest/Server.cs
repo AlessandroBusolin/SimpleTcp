@@ -1,14 +1,13 @@
-﻿using System;
+﻿using SuperSimpleTcp;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using SimpleTcp;
 
 namespace ServerTest
 {
     class Program
     {
-        static string _ListenerIpPort;
         static string _ListenerIp;
         static int _ListenerPort;
         static bool _Ssl;
@@ -24,31 +23,30 @@ namespace ServerTest
         { 
             _ListenerIp =    InputString("Listener IP   :", "127.0.0.1", false);
             _ListenerPort = InputInteger("Listener Port :", 9000, true, false); 
-
-            /*
             _Ssl =          InputBoolean("Use SSL       :", false);
-
             if (_Ssl)
             {
                 _PfxFilename = InputString("PFX Certificate File:", "simpletcp.pfx", false);
                 _PfxPassword = InputString("PFX File Password:", "simpletcp", false);
+                _Server = new SimpleTcpServer(_ListenerIp, _ListenerPort, _Ssl, _PfxFilename, _PfxPassword);
+            }
+            else
+            {
+                _Server = new SimpleTcpServer(_ListenerIp, _ListenerPort);
             }
 
-            _Server = new SimpleTcpServer(_ListenerIp, _ListenerPort, _Ssl, _PfxFilename, _PfxPassword);
-            */
-
-            // _Server = new SimpleTcpServer(_ListenerIp, + ":" + _ListenerPort));
-
-            _Server = new SimpleTcpServer(_ListenerIp, _ListenerPort);
             _Server.Events.ClientConnected += ClientConnected;
             _Server.Events.ClientDisconnected += ClientDisconnected;
             _Server.Events.DataReceived += DataReceived;
+            _Server.Events.DataSent += DataSent;
             _Server.Keepalive.EnableTcpKeepAlives = true;
             _Server.Settings.IdleClientTimeoutMs = _IdleClientTimeoutMs; 
             _Server.Settings.MutuallyAuthenticate = false;
             _Server.Settings.AcceptInvalidCertificates = true;
             _Server.Logger = Logger;
             _Server.Start();
+
+            Console.WriteLine("Server started");
 
             while (_RunForever)
             {
@@ -98,13 +96,13 @@ namespace ServerTest
             }
         }
 
-        static void ClientConnected(object sender, ClientConnectedEventArgs e)
+        static void ClientConnected(object sender, ConnectionEventArgs e)
         {
             _LastClientIpPort = e.IpPort;
             Console.WriteLine("[" + e.IpPort + "] client connected");
         }
 
-        static void ClientDisconnected(object sender, ClientDisconnectedEventArgs e)
+        static void ClientDisconnected(object sender, ConnectionEventArgs e)
         {
             Console.WriteLine("[" + e.IpPort + "] client disconnected: " + e.Reason.ToString());
         }
@@ -112,6 +110,11 @@ namespace ServerTest
         static void DataReceived(object sender, DataReceivedEventArgs e)
         {
             Console.WriteLine("[" + e.IpPort + "]: " + Encoding.UTF8.GetString(e.Data));
+        }
+
+        private static void DataSent(object sender, DataSentEventArgs e)
+        {
+            Console.WriteLine("[" + e.IpPort + "] sent " + e.BytesSent + " bytes");
         }
 
         static void Menu()

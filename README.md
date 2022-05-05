@@ -1,4 +1,4 @@
-﻿![alt tag](https://github.com/jchristn/supersimpletcp/blob/master/assets/icon.ico)
+﻿![supersimpletcp](https://github.com/jchristn/supersimpletcp/blob/master/assets/icon.ico)
 
 # SuperSimpleTcp
 
@@ -13,19 +13,28 @@ SuperSimpleTcp provides simple methods for creating your own TCP-based sockets a
 
 **I would highly encourage you to fully understand what message framing is and why it's important before using this library: https://blog.stephencleary.com/2009/04/message-framing.html**
 
-## New in v2.4.1
+## New in v2.6.0
 
-- Automatic client-side timeout and disconnect due to server inactivity; see ```Settings.IdleServerTimeoutMs```
+- Minor breaking namespace change (now ```SuperSimpleTcp``` instead of ```SimpleTcp```)
+- Internal refactor for coding best practices
+- Thank you @tinohager!
+
+## Special Thanks
+
+A special thanks to the community of people that have contributed to or otherwise improved this project!
+
+@tinohager @u1035 @cmeeren @pha3z @opnop @kopkarmecoindo @simonhaines @matt1tk @lukeacat @exergist 
+@maynardsi @sector13371 @loganwoodxyz @jwfxpr
 
 ## Help or Feedback
 
-Need help or have feedback?  Please file an issue here!
+Need help or have feedback? Please file an issue here!
 
 ## Simple Examples
 
 ### Server Example
 ```csharp
-using SimpleTcp;
+using SuperSimpleTcp;
 
 void Main(string[] args)
 {
@@ -45,25 +54,25 @@ void Main(string[] args)
   Console.ReadKey();
 }
 
-static void ClientConnected(object sender, ClientConnectedEventArgs e)
+static void ClientConnected(object sender, ConnectionEventArgs e)
 {
-  Console.WriteLine("[" + e.IpPort + "] client connected");
+  Console.WriteLine($"[{e.IpPort}] client connected");
 }
 
-static void ClientDisconnected(object sender, ClientDisconnectedEventArgs e)
+static void ClientDisconnected(object sender, ConnectionEventArgs e)
 {
-  Console.WriteLine("[" + e.IpPort + "] client disconnected: " + e.Reason.ToString());
+  Console.WriteLine($"[{e.IpPort}] client disconnected: {e.Reason}");
 }
 
 static void DataReceived(object sender, DataReceivedEventArgs e)
 {
-  Console.WriteLine("[" + e.IpPort + "]: " + Encoding.UTF8.GetString(e.Data));
+  Console.WriteLine($"[{e.IpPort}]: {Encoding.UTF8.GetString(e.Data)}");
 }
 ```
 
 ### Client Example
 ```csharp
-using SimpleTcp;
+using SuperSimpleTcp;
 
 void Main(string[] args)
 {
@@ -83,27 +92,27 @@ void Main(string[] args)
   Console.ReadKey();
 }
 
-static void Connected(object sender, EventArgs e)
+static void Connected(object sender, ConnectionEventArgs e)
 {
-  Console.WriteLine("*** Server connected");
+  Console.WriteLine($"*** Server {e.IpPort} connected");
 }
 
-static void Disconnected(object sender, EventArgs e)
+static void Disconnected(object sender, ConnectionEventArgs e)
 {
-  Console.WriteLine("*** Server disconnected"); 
+  Console.WriteLine($"*** Server {e.IpPort} disconnected"); 
 }
 
 static void DataReceived(object sender, DataReceivedEventArgs e)
 {
-  Console.WriteLine("[" + e.IpPort + "] " + Encoding.UTF8.GetString(e.Data));
+  Console.WriteLine($"[{e.IpPort}] {Encoding.UTF8.GetString(e.Data)}");
 }
 ```
 
 ### Connect With Retries
 
-The ```ConnectWithRetries``` method on SimpleTcpClient can be used instead of ```Connect``` to continually attempt to establish connections with the server for a given period of time.  Like ```Connect```, ```ConnectWithRetries``` will throw a ```TimeoutException``` if it is unable to successfully establish a connection.
+The ```ConnectWithRetries``` method on SimpleTcpClient can be used instead of ```Connect``` to continually attempt to establish connections with the server for a given period of time. Like ```Connect```, ```ConnectWithRetries``` will throw a ```TimeoutException``` if it is unable to successfully establish a connection.
 ```csharp
-client.ConnectWithRetries(10); // try for up to 10 seconds
+client.ConnectWithRetries(10000); // try for up to 10000 milliseconds
 ```
 
 ### Additional Configuration Options
@@ -133,11 +142,11 @@ Additionally, both SimpleTcpClient and SimpleTcpServer offer a statistics object
 
 ### Testing with SSL
 
-A certificate named ```simpletcp.pfx``` is provided for simple testing.  It should not expire for a really long time.  It's a self-signed certificate and you should NOT use it in production.  Its export password is ```simpletcp```.
+A certificate named ```simpletcp.pfx``` is provided for simple testing. It should not expire for a really long time. It's a self-signed certificate and you should NOT use it in production. Its export password is ```simpletcp```.
 
 ## Disconnection Handling
 
-The project TcpTest (https://github.com/jchristn/TcpTest) was built specifically to provide a reference for SimpleTcp to handle a variety of disconnection scenarios.  The disconnection tests for which SimpleTcp is evaluated include:
+The project TcpTest (https://github.com/jchristn/TcpTest) was built specifically to provide a reference for SuperSimpleTcp to handle a variety of disconnection scenarios.  The disconnection tests for which SimpleTcp is evaluated include:
 
 | Test case | Description | Pass/Fail |
 |---|---|---|
@@ -148,7 +157,7 @@ The project TcpTest (https://github.com/jchristn/TcpTest) was built specifically
 | Client-side termination | Abrupt termination due to a process abort or CTRL-C | PASS |
 | Network interface down | Network interface disabled or cable removed | Partial (see below) |
 
-Additionally, as of v2.1.0, support for TCP keepalives has been added to SimpleTcp, primarily to address the issue of a network interface being shut down, the cable unplugged, or the media otherwise becoming unavailable.  It is important to note that keepalives are supported in .NET Core and .NET Framework, but NOT .NET Standard.  As of this release, .NET Standard provides no facilities for TCP keepalives.
+Additionally, as of v2.1.0, support for TCP keepalives has been added to SimpleTcp, primarily to address the issue of a network interface being shut down, the cable unplugged, or the media otherwise becoming unavailable.  It is important to note that keepalives are supported in .NET Core and .NET Framework, but NOT .NET Standard. As of this release, .NET Standard provides no facilities for TCP keepalives.
 
 TCP keepalives are enabled by default.
 ```csharp
@@ -163,21 +172,16 @@ Some important notes about TCP keepalives:
 - Keepalives only work in .NET Core and .NET Framework
 - Keepalives can be enabled on either client or server, but are implemented and enforced in the underlying operating system, and may not work as expected
 - ```Keepalive.TcpKeepAliveRetryCount``` is only applicable to .NET Core; for .NET Framework, this value is forced to 10
+- *Your mileage may vary*
 
 ## Running under Mono
 
-.NET Core is the preferred environment for cross-platform deployment on Windows, Linux, and Mac.  For those that use Mono, SimpleTcp should work well in Mono environments.  It is recommended that you execute the containing EXE using --server and after using the Mono Ahead-of-Time Compiler (AOT).
+.NET Core is the preferred environment for cross-platform deployment on Windows, Linux, and Mac.  For those that use Mono, SimpleTcp should work well in Mono environments. It is recommended that you execute the containing EXE using --server and after using the Mono Ahead-of-Time Compiler (AOT).
 
 ```
 mono --aot=nrgctx-trampolines=8096,nimt-trampolines=8096,ntrampolines=4048 --server myapp.exe
 mono --server myapp.exe
 ```
-
-## Special Thanks
-
-A special thanks to the community of people that have contributed to or otherwise improved this project!
-
-@u1035 @cmeeren @tinohager @pha3z @opnop @kopkarmecoindo @simonhaines @matt1tk @lukeacat @exergist @maynardsi @sector13371 
 
 ## Version History
 
