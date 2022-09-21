@@ -658,6 +658,25 @@ namespace SuperSimpleTcp
         }
 
         /// <summary>
+        /// Disconnect from the server.
+        /// </summary>
+        public async Task DisconnectAsync()
+        {
+            if (!IsConnected)
+            {
+                Logger?.Invoke($"{_header}already disconnected");
+                return;
+            }
+
+            Logger?.Invoke($"{_header}disconnecting from {ServerIpPort}");
+
+            _tokenSource.Cancel();
+            await _dataReceiver;
+            _client.Close();
+            _isConnected = false;
+        }
+
+        /// <summary>
         /// Send data to the server.
         /// </summary>
         /// <param name="data">String containing data to send.</param>
@@ -849,21 +868,21 @@ namespace SuperSimpleTcp
                 {
                     await DataReadAsync(token).ContinueWith(async task =>
                         {
-                            if (task.IsCanceled) return null;
-                            byte[] data = task.Result;
+                            if (task.IsCanceled) return default;
+                            var data = task.Result;
 
                             if (data != null)
                             {
                                 _lastActivity = DateTime.Now;
                                 _events.HandleDataReceived(this, new DataReceivedEventArgs(ServerIpPort, data));
-                                _statistics.ReceivedBytes += data.Length;
+                                _statistics.ReceivedBytes += data.Count;
 
                                 return data;
                             }
                             else
                             {
                                 await Task.Delay(100).ConfigureAwait(false);
-                                return null;
+                                return default;
                             }
 
                         }, token).ContinueWith(task => { }).ConfigureAwait(false);
@@ -915,7 +934,7 @@ namespace SuperSimpleTcp
             Dispose();
         }
 
-        private async Task<byte[]> DataReadAsync(CancellationToken token)
+        private async Task<ArraySegment<byte>> DataReadAsync(CancellationToken token)
         {
             byte[] buffer = new byte[_settings.StreamBufferSize];
             int read = 0;
@@ -936,7 +955,7 @@ namespace SuperSimpleTcp
                     using (MemoryStream ms = new MemoryStream())
                     {
                         ms.Write(buffer, 0, read);
-                        return ms.ToArray();
+                        return new ArraySegment<byte>(ms.GetBuffer(), 0, (int)ms.Length);
                     }
                 }
                 else
@@ -958,7 +977,7 @@ namespace SuperSimpleTcp
 
                     if (!isOk)
                     {
-                        this.Disconnect();
+                        await this.DisconnectAsync();
                     }
 
                     throw new SocketException();
@@ -969,7 +988,7 @@ namespace SuperSimpleTcp
                 // thrown if ReadTimeout (ms) is exceeded
                 // see https://docs.microsoft.com/en-us/dotnet/api/system.net.sockets.networkstream.readtimeout?view=net-6.0
                 // and https://github.com/dotnet/runtime/issues/24093
-                return null;
+                return default;
             }
         }
 
@@ -1049,9 +1068,13 @@ namespace SuperSimpleTcp
 
         private void EnableKeepalives()
         {
+            // issues with definitions: https://github.com/dotnet/sdk/issues/14540
+
             try
             {
-#if NETCOREAPP || NET5_0
+#if NETCOREAPP3_1_OR_GREATER || NET6_0_OR_GREATER
+
+                // NETCOREAPP3_1_OR_GREATER catches .NET 5.0
 
                 _client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
                 _client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, _keepalive.TcpKeepAliveTime);
@@ -1066,10 +1089,10 @@ namespace SuperSimpleTcp
                 Buffer.BlockCopy(BitConverter.GetBytes((uint)1), 0, keepAlive, 0, 4);
 
                 // Set TCP keepalive time
-                Buffer.BlockCopy(BitConverter.GetBytes((uint)_keepalive.TcpKeepAliveTime), 0, keepAlive, 4, 4);
+                Buffer.BlockCopy(BitConverter.GetBytes((uint)_keepalive.TcpKeepAliveTimeMilliseconds), 0, keepAlive, 4, 4);
 
                 // Set TCP keepalive interval
-                Buffer.BlockCopy(BitConverter.GetBytes((uint)_keepalive.TcpKeepAliveInterval), 0, keepAlive, 8, 4);
+                Buffer.BlockCopy(BitConverter.GetBytes((uint)_keepalive.TcpKeepAliveIntervalMilliseconds), 0, keepAlive, 8, 4);
 
                 // Set keepalive settings on the underlying Socket
                 _client.Client.IOControl(IOControlCode.KeepAliveValues, keepAlive, null);

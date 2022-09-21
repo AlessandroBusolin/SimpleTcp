@@ -721,7 +721,25 @@ namespace SuperSimpleTcp
                     #endregion
 
                     TcpClient tcpClient = await _listener.AcceptTcpClientAsync().ConfigureAwait(false);
-                    string clientIp = tcpClient.Client.RemoteEndPoint.ToString();
+                    string clientIpPort = tcpClient.Client.RemoteEndPoint.ToString();
+
+                    string clientIp = null;
+                    int clientPort = 0;
+                    Common.ParseIpPort(clientIpPort, out clientIp, out clientPort);
+
+                    if (_settings.PermittedIPs.Count > 0 && !_settings.PermittedIPs.Contains(clientIp))
+                    {
+                        Logger?.Invoke($"{_header}rejecting connection from {clientIp} (not permitted)");
+                        tcpClient.Close();
+                        continue;
+                    }
+
+                    if (_settings.BlockedIPs.Count > 0 && _settings.BlockedIPs.Contains(clientIp))
+                    {
+                        Logger?.Invoke($"{_header}rejecting connection from {clientIp} (blocked)");
+                        tcpClient.Close();
+                        continue;
+                    }
 
                     client = new ClientMetadata(tcpClient);
 
@@ -744,10 +762,10 @@ namespace SuperSimpleTcp
                         }
                     }
 
-                    _clients.TryAdd(clientIp, client);
-                    _clientsLastSeen.TryAdd(clientIp, DateTime.Now);
-                    Logger?.Invoke($"{_header}starting data receiver for: {clientIp}");
-                    _events.HandleClientConnected(this, new ConnectionEventArgs(clientIp));
+                    _clients.TryAdd(clientIpPort, client);
+                    _clientsLastSeen.TryAdd(clientIpPort, DateTime.Now);
+                    Logger?.Invoke($"{_header}starting data receiver for: {clientIpPort}");
+                    _events.HandleClientConnected(this, new ConnectionEventArgs(clientIpPort));
 
                     if (_keepalive.EnableTcpKeepAlives) EnableKeepalives(tcpClient);
 
@@ -758,7 +776,7 @@ namespace SuperSimpleTcp
 
                     if (_clients.Count >= _settings.MaxConnections)
                     {
-                        Logger?.Invoke(_header + "maximum connections " + _settings.MaxConnections + " met (currently " + _clients.Count + " connections), pausing");
+                        Logger?.Invoke($"{_header}maximum connections {_settings.MaxConnections} met (currently {_clients.Count} connections), pausing");
                         _isListening = false;
                         _listener.Stop();
                     }
@@ -859,7 +877,7 @@ namespace SuperSimpleTcp
                         break;
                     } 
 
-                    byte[] data = await DataReadAsync(client, linkedCts.Token).ConfigureAwait(false);
+                    var data = await DataReadAsync(client, linkedCts.Token).ConfigureAwait(false);
                     if (data == null)
                     {
                         await Task.Delay(10, linkedCts.Token).ConfigureAwait(false);
@@ -867,7 +885,7 @@ namespace SuperSimpleTcp
                     }
 
                     _ = Task.Run(() => _events.HandleDataReceived(this, new DataReceivedEventArgs(ipPort, data)), linkedCts.Token);
-                    _statistics.ReceivedBytes += data.Length;
+                    _statistics.ReceivedBytes += data.Count;
                     UpdateClientLastSeen(client.IpPort);
                 }
                 catch (IOException)
@@ -920,7 +938,7 @@ namespace SuperSimpleTcp
             if (client != null) client.Dispose();
         }
            
-        private async Task<byte[]> DataReadAsync(ClientMetadata client, CancellationToken token)
+        private async Task<ArraySegment<byte>> DataReadAsync(ClientMetadata client, CancellationToken token)
         { 
             byte[] buffer = new byte[_settings.StreamBufferSize];
             int read = 0;
@@ -936,7 +954,7 @@ namespace SuperSimpleTcp
                         if (read > 0)
                         {
                             await ms.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
-                            return ms.ToArray();
+                            return new ArraySegment<byte>(ms.GetBuffer(), 0, (int)ms.Length);
                         }
                         else
                         {
@@ -956,7 +974,7 @@ namespace SuperSimpleTcp
                         if (read > 0)
                         {
                             await ms.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
-                            return ms.ToArray();
+                            return new ArraySegment<byte>(ms.GetBuffer(), 0, (int)ms.Length);
                         }
                         else
                         {
@@ -1090,9 +1108,13 @@ namespace SuperSimpleTcp
 
         private void EnableKeepalives()
         {
+            // issues with definitions: https://github.com/dotnet/sdk/issues/14540
+
             try
             {
-#if NETCOREAPP || NET5_0
+#if NETCOREAPP3_1_OR_GREATER || NET6_0_OR_GREATER
+
+                // NETCOREAPP3_1_OR_GREATER catches .NET 5.0
 
                 _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
                 _listener.Server.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, _keepalive.TcpKeepAliveTime);
@@ -1107,10 +1129,10 @@ namespace SuperSimpleTcp
             Buffer.BlockCopy(BitConverter.GetBytes((uint)1), 0, keepAlive, 0, 4);
 
             // Set TCP keepalive time
-            Buffer.BlockCopy(BitConverter.GetBytes((uint)_keepalive.TcpKeepAliveTime), 0, keepAlive, 4, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes((uint)_keepalive.TcpKeepAliveTimeMilliseconds), 0, keepAlive, 4, 4);
 
             // Set TCP keepalive interval
-            Buffer.BlockCopy(BitConverter.GetBytes((uint)_keepalive.TcpKeepAliveInterval), 0, keepAlive, 8, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes((uint)_keepalive.TcpKeepAliveIntervalMilliseconds), 0, keepAlive, 8, 4);
 
             // Set keepalive settings on the underlying Socket
             _listener.Server.IOControl(IOControlCode.KeepAliveValues, keepAlive, null);
@@ -1129,7 +1151,7 @@ namespace SuperSimpleTcp
         {
             try
             {
-#if NETCOREAPP || NET5_0
+#if NETCOREAPP || NET5_0_OR_GREATER
 
                 client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
                 client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, _keepalive.TcpKeepAliveTime);
