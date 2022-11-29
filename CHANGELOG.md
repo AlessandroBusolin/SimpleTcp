@@ -2,11 +2,27 @@
 
 ## Current Version
 
+v3.0.5
+
+- Merge fix from @ATS-CE
+
+## Previous Versions
+
+v3.0.4
+
+- Better catch client timeouts during TLS establishment (thank you @ATS-CE)
+
+v3.0.3
+
+- More configurability around certificate validation checks (thank you @ATS-CE)
+
+v3.0.1
+
+- Configurable sync vs async for firing DataReceived events (thank you @TheNybbler)
+
 v3.0.0
 
 - Breaking change, allocation-free receive (thank you @joreg)
-
-## Previous Versions
 
 v2.6.0
 

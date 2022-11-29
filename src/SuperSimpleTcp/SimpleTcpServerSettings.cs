@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Net.Security;
 
 namespace SuperSimpleTcp
 {
@@ -88,6 +89,22 @@ namespace SuperSimpleTcp
         /// Enable or disable mutual authentication of SSL client and server.
         /// </summary>
         public bool MutuallyAuthenticate = true;
+
+        /// <summary>
+        /// Enable or disable whether the data receiver thread fires the DataReceived event from a background task.
+        /// The default is enabled.
+        /// </summary>
+        public bool UseAsyncDataReceivedEvents = true;
+
+        /// <summary>
+        /// Enable or disable checking certificate revocation list during the validation process.
+        /// </summary>
+        public bool CheckCertificateRevocation = true;
+
+        /// <summary>
+        /// Delegate responsible for validating a certificate supplied by a remote party.
+        /// </summary>
+        public RemoteCertificateValidationCallback CertificateValidationCallback = null;
 
         /// <summary>
         /// The list of permitted IP addresses from which connections can be received.

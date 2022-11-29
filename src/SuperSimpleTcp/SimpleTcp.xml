@@ -396,6 +396,22 @@
             Enable or disable mutual authentication of SSL client and server.
             </summary>
         </member>
+        <member name="F:SuperSimpleTcp.SimpleTcpClientSettings.UseAsyncDataReceivedEvents">
+            <summary>
+            Enable or disable whether the data receiver thread fires the DataReceived event from a background task.
+            The default is enabled.
+            </summary>
+        </member>
+        <member name="F:SuperSimpleTcp.SimpleTcpClientSettings.CheckCertificateRevocation">
+            <summary>
+            Enable or disable checking certificate revocation list during the validation process.
+            </summary>
+        </member>
+        <member name="F:SuperSimpleTcp.SimpleTcpClientSettings.CertificateValidationCallback">
+            <summary>
+            Delegate responsible for validating a certificate supplied by a remote party.
+            </summary>
+        </member>
         <member name="M:SuperSimpleTcp.SimpleTcpClientSettings.#ctor">
             <summary>
             Instantiate the object.
@@ -682,6 +698,22 @@
         <member name="F:SuperSimpleTcp.SimpleTcpServerSettings.MutuallyAuthenticate">
             <summary>
             Enable or disable mutual authentication of SSL client and server.
+            </summary>
+        </member>
+        <member name="F:SuperSimpleTcp.SimpleTcpServerSettings.UseAsyncDataReceivedEvents">
+            <summary>
+            Enable or disable whether the data receiver thread fires the DataReceived event from a background task.
+            The default is enabled.
+            </summary>
+        </member>
+        <member name="F:SuperSimpleTcp.SimpleTcpServerSettings.CheckCertificateRevocation">
+            <summary>
+            Enable or disable checking certificate revocation list during the validation process.
+            </summary>
+        </member>
+        <member name="F:SuperSimpleTcp.SimpleTcpServerSettings.CertificateValidationCallback">
+            <summary>
+            Delegate responsible for validating a certificate supplied by a remote party.
             </summary>
         </member>
         <member name="P:SuperSimpleTcp.SimpleTcpServerSettings.PermittedIPs">
