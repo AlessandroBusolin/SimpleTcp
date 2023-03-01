@@ -386,7 +386,7 @@ namespace SuperSimpleTcp
             if (_isListening) throw new InvalidOperationException("SimpleTcpServer is already running.");
 
             _listener = new TcpListener(_ipAddress, _port);
-
+            _listener.Server.NoDelay = _settings.NoDelay;
             _listener.Start();
             _isListening = true;
 
@@ -1190,10 +1190,10 @@ namespace SuperSimpleTcp
                 Buffer.BlockCopy(BitConverter.GetBytes((uint)1), 0, keepAlive, 0, 4);
 
                 // Set TCP keepalive time
-                Buffer.BlockCopy(BitConverter.GetBytes((uint)_keepalive.TcpKeepAliveTime), 0, keepAlive, 4, 4);
+                Buffer.BlockCopy(BitConverter.GetBytes((uint)_keepalive.TcpKeepAliveTimeMilliseconds), 0, keepAlive, 4, 4);
 
                 // Set TCP keepalive interval
-                Buffer.BlockCopy(BitConverter.GetBytes((uint)_keepalive.TcpKeepAliveInterval), 0, keepAlive, 8, 4);
+                Buffer.BlockCopy(BitConverter.GetBytes((uint)_keepalive.TcpKeepAliveIntervalMilliseconds), 0, keepAlive, 8, 4);
 
                 // Set keepalive settings on the underlying Socket
                 client.Client.IOControl(IOControlCode.KeepAliveValues, keepAlive, null);

@@ -21,15 +21,16 @@ SuperSimpleTcp provides simple methods for creating your own TCP-based sockets a
 - Better catch client timeouts during TLS establishment (thank you @ATS-CE)
 - Add ```NoDelay``` to settings (thank you @huangjia2107)
 - Fix for PollSocket method, thank you @zllvm @Energiz0r @Espen-Kalhagen-Element-Logic
+- Added server-side ```NoDelay``` property in settings, thank you @QTPah
 
 ## Special Thanks
 
 A special thanks to the community of people that have contributed to or otherwise improved this project!
 
-@tinohager @u1035 @cmeeren @pha3z @opnop @kopkarmecoindo @simonhaines @matt1tk 
-@lukeacat @exergist @maynardsi @sector13371 @loganwoodxyz @jwfxpr @IanPNewson 
-@EGirardi @redrabbit007 @eatyouroats @joreg @CetinOzdil @tautvilis @ATS-CE 
-@TheNybbler @huangjia2107 @zllvm @Energiz0r @Espen-Kalhagen-Element-Logic
+@tinohager @u1035 @cmeeren @pha3z @opnop @kopkarmecoindo @simonhaines @matt1tk @lukeacat 
+@exergist @maynardsi @sector13371 @loganwoodxyz @jwfxpr @IanPNewson @EGirardi @redrabbit007 
+@eatyouroats @joreg @CetinOzdil @tautvilis @ATS-CE @TheNybbler @huangjia2107 @zllvm 
+@Energiz0r @Espen-Kalhagen-Element-Logic @MarkBreedveld @QTPah @olifer
 
 ## Help or Feedback
 
