@@ -2,9 +2,12 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -13,7 +16,7 @@ using System.Threading.Tasks;
 
 namespace SuperSimpleTcp
 {
-    /// <summary>
+     /// <summary>
     /// SimpleTcp server with SSL support.  
     /// Set the ClientConnected, ClientDisconnected, and DataReceived events.  
     /// Once set, use Start() to begin listening for connections.
@@ -676,25 +679,39 @@ namespace SuperSimpleTcp
          
         private bool IsClientConnected(TcpClient client)
         {
-            if (!client.Connected)
+            if (client == null) return false;
+
+            var state = IPGlobalProperties.GetIPGlobalProperties()
+                .GetActiveTcpConnections()
+                    .FirstOrDefault(x =>
+                        x.LocalEndPoint.Equals(client.Client.LocalEndPoint)
+                        && x.RemoteEndPoint.Equals(client.Client.RemoteEndPoint));
+
+            if (state == default(TcpConnectionInformation)
+                || state.State == TcpState.Unknown
+                || state.State == TcpState.FinWait1
+                || state.State == TcpState.FinWait2
+                || state.State == TcpState.Closed
+                || state.State == TcpState.Closing
+                || state.State == TcpState.CloseWait)
             {
                 return false;
             }
 
-            if (client.Client.Poll(0, SelectMode.SelectWrite) && (!client.Client.Poll(0, SelectMode.SelectError)))
+            if ((client.Client.Poll(0, SelectMode.SelectWrite)) && (!client.Client.Poll(0, SelectMode.SelectError)))
             {
                 byte[] buffer = new byte[1];
                 if (client.Client.Receive(buffer, SocketFlags.Peek) == 0)
                 {
                     return false;
                 }
-               
-                return true;
+                else
+                {
+                    return true;
+                }
             }
-            else
-            {
-                return false;
-            }
+
+            return false;
         }
 
         private async Task AcceptConnections()
@@ -1175,12 +1192,21 @@ namespace SuperSimpleTcp
         {
             try
             {
-#if NETCOREAPP || NET5_0_OR_GREATER
+#if NETCOREAPP3_1_OR_GREATER || NET6_0_OR_GREATER
+
+                // NETCOREAPP3_1_OR_GREATER catches .NET 5.0
 
                 client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
                 client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, _keepalive.TcpKeepAliveTime);
                 client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, _keepalive.TcpKeepAliveInterval);
-                client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, _keepalive.TcpKeepAliveRetryCount);
+
+                // Windows 10 version 1703 or later
+
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                    && Environment.OSVersion.Version >= new Version(10, 0, 15063))
+                {
+                    client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, _keepalive.TcpKeepAliveRetryCount);
+                }
 
 #elif NETFRAMEWORK
 
