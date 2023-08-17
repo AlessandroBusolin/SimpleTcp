@@ -107,6 +107,38 @@ namespace SuperSimpleTcp
         }
 
         /// <summary>
+        /// The IP address on which the server is configured to listen.
+        /// </summary>
+        public IPAddress IpAddress
+        {
+            get
+            {
+                return _ipAddress;
+            }
+        }
+
+        /// <summary>
+        /// The IPEndPoint on which the server is configured to listen.
+        /// </summary>
+        public EndPoint Endpoint
+        {
+            get
+            {
+                return _listener == null ? null : ((IPEndPoint)_listener.LocalEndpoint);
+            }
+        }
+        /// <summary>
+        /// The port on which the server is configured to listen.
+        /// </summary>
+        public int Port
+        {
+            get
+            {
+                return _listener == null ? 0 : ((IPEndPoint)_listener.LocalEndpoint).Port;
+            }
+        }
+
+        /// <summary>
         /// Method to invoke to send a log message.
         /// </summary>
         public Action<string> Logger = null;
