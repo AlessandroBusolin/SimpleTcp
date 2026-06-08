@@ -1,4 +1,4 @@
-﻿![supersimpletcp](https://github.com/jchristn/supersimpletcp/blob/master/assets/icon.ico)
+﻿![supersimpletcp](https://raw.githubusercontent.com/jchristn/supersimpletcp/main/assets/icon.ico)
 
 # SuperSimpleTcp
 
